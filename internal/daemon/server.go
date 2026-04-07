@@ -16,6 +16,7 @@ import (
 	"github.com/nemanjab17/smurf/internal/network"
 	"github.com/nemanjab17/smurf/internal/state"
 	"github.com/nemanjab17/smurf/internal/vm"
+	// network is still used by NewWithDeps signature
 )
 
 type Server struct {
@@ -23,7 +24,6 @@ type Server struct {
 	cfg     Config
 	store   state.Store
 	vmMgr   *vm.Manager
-	netMgr  *network.Manager
 	grpcSrv *grpc.Server
 }
 
@@ -47,14 +47,39 @@ func New(cfg Config) (*Server, error) {
 		return nil, fmt.Errorf("init network: %w", err)
 	}
 
-	vmMgr := vm.NewManager(store, netMgr)
+	vmMgr := vm.NewManager(store, netMgr, vm.NewFirecrackerBackend())
 
 	return &Server{
-		cfg:    cfg,
-		store:  store,
-		vmMgr:  vmMgr,
-		netMgr: netMgr,
+		cfg:   cfg,
+		store: store,
+		vmMgr: vmMgr,
 	}, nil
+}
+
+// NewWithDeps creates a Server with externally provided dependencies.
+// Used in tests to inject mock backends and pre-built stores.
+func NewWithDeps(cfg Config, store state.Store, netMgr network.Networker, backend vm.Backend) *Server {
+	return &Server{
+		cfg:   cfg,
+		store: store,
+		vmMgr: vm.NewManager(store, netMgr, backend),
+	}
+}
+
+// RunOnListener starts the gRPC server on an already-open listener.
+// Used in tests to avoid needing a fixed socket path.
+func (s *Server) RunOnListener(lis net.Listener) error {
+	s.grpcSrv = grpc.NewServer()
+	smurfv1.RegisterSmurfServiceServer(s.grpcSrv, s)
+	return s.grpcSrv.Serve(lis)
+}
+
+// Shutdown stops the gRPC server and closes the store.
+func (s *Server) Shutdown() {
+	if s.grpcSrv != nil {
+		s.grpcSrv.GracefulStop()
+	}
+	_ = s.store.Close()
 }
 
 func (s *Server) Run() error {

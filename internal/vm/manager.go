@@ -16,15 +16,17 @@ import (
 
 type Manager struct {
 	store   state.Store
-	net     *network.Manager
+	net     network.Networker
+	backend Backend
 	mu      sync.Mutex
 	running map[string]*RunningVM // smurfID -> VM
 }
 
-func NewManager(store state.Store, net *network.Manager) *Manager {
+func NewManager(store state.Store, net network.Networker, backend Backend) *Manager {
 	return &Manager{
 		store:   store,
 		net:     net,
+		backend: backend,
 		running: make(map[string]*RunningVM),
 	}
 }
@@ -39,13 +41,11 @@ func (m *Manager) Create(ctx context.Context, opts CreateOpts) (*state.Smurf, er
 
 	id := ulid.Make().String()
 
-	// Set up networking first so we have an IP
 	netCfg, err := m.net.Setup(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("network setup: %w", err)
 	}
 
-	// Copy rootfs per-smurf (CoW when filesystem supports it)
 	smurfDir := filepath.Join(SmurfsDir, id)
 	if err := os.MkdirAll(smurfDir, 0755); err != nil {
 		_ = m.net.Teardown(ctx, id)
@@ -88,7 +88,7 @@ func (m *Manager) Create(ctx context.Context, opts CreateOpts) (*state.Smurf, er
 		return nil, fmt.Errorf("persist smurf: %w", err)
 	}
 
-	vm, err := boot(ctx, id, papa.KernelPath, rootfsPath, opts, netCfg)
+	rvm, err := m.backend.Boot(ctx, id, papa.KernelPath, rootfsPath, opts, netCfg)
 	if err != nil {
 		_ = m.store.UpdateSmurfStatus(ctx, id, state.StatusError)
 		_ = m.net.Teardown(ctx, id)
@@ -96,14 +96,14 @@ func (m *Manager) Create(ctx context.Context, opts CreateOpts) (*state.Smurf, er
 	}
 
 	sm.Status = state.StatusRunning
-	sm.SocketPath = vm.SocketPath
-	sm.PID = vm.PID
+	sm.SocketPath = rvm.SocketPath
+	sm.PID = rvm.PID
 	if err := m.store.UpdateSmurf(ctx, sm); err != nil {
 		return nil, fmt.Errorf("update smurf state: %w", err)
 	}
 
 	m.mu.Lock()
-	m.running[id] = vm
+	m.running[id] = rvm
 	m.mu.Unlock()
 
 	return sm, nil
@@ -116,11 +116,11 @@ func (m *Manager) Stop(ctx context.Context, nameOrID string) error {
 	}
 
 	m.mu.Lock()
-	vm, ok := m.running[sm.ID]
+	rvm, ok := m.running[sm.ID]
 	m.mu.Unlock()
 
 	if ok {
-		if err := vm.Stop(ctx); err != nil {
+		if err := m.backend.Stop(ctx, rvm); err != nil {
 			return fmt.Errorf("stop vm: %w", err)
 		}
 		m.mu.Lock()
@@ -129,7 +129,6 @@ func (m *Manager) Stop(ctx context.Context, nameOrID string) error {
 	}
 
 	if err := m.net.Teardown(ctx, sm.ID); err != nil {
-		// Log but don't fail — the VM is already down
 		fmt.Printf("warn: teardown network for %s: %v\n", sm.ID, err)
 	}
 
