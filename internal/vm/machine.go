@@ -22,7 +22,16 @@ type RunningVM struct {
 	netCfg     *network.Config
 }
 
+// NewRunningVM constructs a RunningVM without a live Firecracker machine.
+// Used by the mock backend and snapshot-restore path.
+func NewRunningVM(id, socketPath, ip string, pid int) *RunningVM {
+	return &RunningVM{ID: id, SocketPath: socketPath, IP: ip, PID: pid}
+}
+
 func (r *RunningVM) Stop(_ context.Context) error {
+	if r.machine == nil {
+		return nil // mock or already-stopped VM
+	}
 	return r.machine.StopVMM()
 }
 
