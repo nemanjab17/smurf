@@ -1,0 +1,77 @@
+syntax = "proto3";
+package smurf.v1;
+option go_package = "github.com/nemanjab17/smurf/api/smurfv1";
+
+service SmurfService {
+  rpc CreateSmurf(CreateSmurfRequest)   returns (SmurfResponse);
+  rpc GetSmurf(GetSmurfRequest)         returns (SmurfResponse);
+  rpc ListSmurfs(ListSmurfsRequest)     returns (ListSmurfsResponse);
+  rpc StopSmurf(StopSmurfRequest)       returns (OKResponse);
+  rpc DeleteSmurf(DeleteSmurfRequest)   returns (OKResponse);
+
+  rpc RegisterPapa(RegisterPapaRequest) returns (PapaResponse);
+  rpc GetPapa(GetPapaRequest)           returns (PapaResponse);
+  rpc ListPapas(ListPapasRequest)       returns (ListPapasResponse);
+  rpc DeletePapa(DeletePapaRequest)     returns (OKResponse);
+}
+
+// ── Smurf messages ───────────────────────────────────────────────────────────
+
+message CreateSmurfRequest {
+  string name         = 1;
+  string papa_id      = 2; // name or ID
+  int32  vcpus        = 3;
+  int32  memory_mb    = 4;
+  int32  disk_size_mb = 5;
+  string repo_url     = 6;
+  string repo_branch  = 7;
+}
+
+message GetSmurfRequest    { string name_or_id = 1; }
+message ListSmurfsRequest  { string status_filter = 1; }
+message StopSmurfRequest   { string name_or_id = 1; }
+message DeleteSmurfRequest { string name_or_id = 1; }
+
+message SmurfInfo {
+  string name        = 1;
+  string id          = 2;
+  string status      = 3;
+  string ip          = 4;
+  string papa_id     = 5;
+  int32  vcpus       = 6;
+  int32  memory_mb   = 7;
+  string repo_url    = 8;
+  string created_at  = 9;
+}
+
+message SmurfResponse      { SmurfInfo smurf = 1; }
+message ListSmurfsResponse { repeated SmurfInfo smurfs = 1; }
+
+// ── Papa messages ─────────────────────────────────────────────────────────────
+
+message RegisterPapaRequest {
+  string name         = 1;
+  string kernel_path  = 2;
+  string rootfs_path  = 3;
+}
+
+message GetPapaRequest    { string name_or_id = 1; }
+message ListPapasRequest  {}
+message DeletePapaRequest { string name_or_id = 1; }
+
+message PapaInfo {
+  string id           = 1;
+  string name         = 2;
+  string kernel_path  = 3;
+  string rootfs_path  = 4;
+  string snapshot_dir = 5;
+  bool   docker_ready = 6;
+  string created_at   = 7;
+}
+
+message PapaResponse      { PapaInfo papa = 1; }
+message ListPapasResponse { repeated PapaInfo papas = 1; }
+
+// ── Shared ────────────────────────────────────────────────────────────────────
+
+message OKResponse { string message = 1; }
