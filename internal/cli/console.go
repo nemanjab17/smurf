@@ -76,6 +76,8 @@ func newConsoleCmd() *cobra.Command {
 				"-o", "StrictHostKeyChecking=no",
 				"-o", "UserKnownHostsFile=/dev/null",
 				"-o", "LogLevel=ERROR",
+				"-o", "ServerAliveInterval=15",
+				"-o", "ServerAliveCountMax=3",
 				target,
 			}
 

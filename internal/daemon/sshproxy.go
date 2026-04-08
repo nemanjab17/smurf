@@ -123,12 +123,24 @@ func (e *proxyEntry) serve() {
 func (e *proxyEntry) forward(client net.Conn) {
 	defer client.Close()
 
+	// Enable TCP keepalive on the client side to prevent idle timeouts
+	if tc, ok := client.(*net.TCPConn); ok {
+		tc.SetKeepAlive(true)
+		tc.SetKeepAlivePeriod(15 * time.Second)
+	}
+
 	target, err := net.DialTimeout("tcp", net.JoinHostPort(e.targetIP, "22"), 5*time.Second)
 	if err != nil {
 		slog.Debug("ssh proxy dial failed", "smurf", e.smurfID, "err", err)
 		return
 	}
 	defer target.Close()
+
+	// Enable TCP keepalive on the target side too
+	if tc, ok := target.(*net.TCPConn); ok {
+		tc.SetKeepAlive(true)
+		tc.SetKeepAlivePeriod(15 * time.Second)
+	}
 
 	done := make(chan struct{}, 2)
 	go func() { io.Copy(target, client); done <- struct{}{} }()
