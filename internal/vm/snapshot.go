@@ -60,7 +60,11 @@ func restoreFromSnapshot(ctx context.Context, id, snapshotDir, rootfsPath string
 		SocketPath: socketPath,
 	}
 
-	machine, err := firecracker.NewMachine(ctx, cfg,
+	// Use a background context for the VM lifecycle — the VM must outlive
+	// the gRPC request context that triggered creation.
+	vmCtx := context.Background()
+
+	machine, err := firecracker.NewMachine(vmCtx, cfg,
 		firecracker.WithLogger(logrus.NewEntry(logger)),
 		firecracker.WithSnapshot(memPath, vmstatePath),
 	)
@@ -82,7 +86,7 @@ func restoreFromSnapshot(ctx context.Context, id, snapshotDir, rootfsPath string
 		},
 	)
 
-	if err := machine.Start(ctx); err != nil {
+	if err := machine.Start(vmCtx); err != nil {
 		return nil, fmt.Errorf("start (restore): %w", err)
 	}
 

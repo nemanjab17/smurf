@@ -78,14 +78,18 @@ func boot(ctx context.Context, id, kernelPath, rootfsPath string, opts CreateOpt
 		},
 	}
 
-	machine, err := firecracker.NewMachine(ctx, cfg,
+	// Use a background context for the VM lifecycle — the VM must outlive
+	// the gRPC request context that triggered creation.
+	vmCtx := context.Background()
+
+	machine, err := firecracker.NewMachine(vmCtx, cfg,
 		firecracker.WithLogger(logrus.NewEntry(logger)),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("new machine: %w", err)
 	}
 
-	if err := machine.Start(ctx); err != nil {
+	if err := machine.Start(vmCtx); err != nil {
 		return nil, fmt.Errorf("start machine: %w", err)
 	}
 
@@ -106,7 +110,7 @@ func boot(ctx context.Context, id, kernelPath, rootfsPath string, opts CreateOpt
 
 func kernelArgs(netCfg *network.Config) string {
 	return fmt.Sprintf(
-		"ro console=ttyS0 noapic reboot=k panic=1 pci=off nomodule "+
+		"rw console=ttyS0 noapic reboot=k panic=1 pci=off nomodule "+
 			"ip=%s::%s:255.255.255.0::eth0:off",
 		netCfg.IP, netCfg.Gateway,
 	)
