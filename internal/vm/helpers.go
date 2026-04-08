@@ -1,9 +1,12 @@
 package vm
 
 import (
+	"crypto/rand"
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
+	"strings"
 )
 
 func mustParseCIDR(s string) net.IPNet {
@@ -27,6 +30,36 @@ func copyFile(src, dst string) error {
 	out, err := exec.Command("cp", "--reflink=auto", src, dst).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("copy %s -> %s: %w: %s", src, dst, err, out)
+	}
+	return nil
+}
+
+// InjectEntropySeed writes 512 bytes of host randomness into /entropy-seed
+// on an ext4 rootfs image. The guest init reads this file to credit entropy
+// after snapshot restore.
+func InjectEntropySeed(rootfsPath string) error {
+	seed := make([]byte, 512)
+	if _, err := rand.Read(seed); err != nil {
+		return fmt.Errorf("generate seed: %w", err)
+	}
+
+	tmp, err := os.CreateTemp("", "entropy-seed-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(seed); err != nil {
+		tmp.Close()
+		return err
+	}
+	tmp.Close()
+
+	cmds := fmt.Sprintf("write %s entropy-seed\n", tmp.Name())
+	cmd := exec.Command("debugfs", "-w", "-f", "/dev/stdin", rootfsPath)
+	cmd.Stdin = strings.NewReader(cmds)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("debugfs write entropy-seed: %w: %s", err, out)
 	}
 	return nil
 }
