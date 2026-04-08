@@ -12,12 +12,15 @@ import (
 func main() {
 	cfg := daemon.DefaultConfig()
 
-	// Allow overriding socket/db paths via env
+	// Allow overriding via env
 	if v := os.Getenv("SMURFD_SOCKET"); v != "" {
 		cfg.SocketPath = v
 	}
 	if v := os.Getenv("SMURFD_DB"); v != "" {
 		cfg.DBPath = v
+	}
+	if v := os.Getenv("SMURFD_LISTEN"); v != "" {
+		cfg.ListenAddr = v
 	}
 
 	srv, err := daemon.New(cfg)

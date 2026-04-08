@@ -109,6 +109,16 @@ func (s *Server) Run() error {
 	errCh := make(chan error, 1)
 	go func() { errCh <- s.grpcSrv.Serve(lis) }()
 
+	// Optional TCP listener for remote CLI clients
+	if s.cfg.ListenAddr != "" {
+		tcpLis, err := net.Listen("tcp", s.cfg.ListenAddr)
+		if err != nil {
+			return fmt.Errorf("listen tcp %s: %w", s.cfg.ListenAddr, err)
+		}
+		slog.Info("smurfd listening on tcp", "addr", s.cfg.ListenAddr)
+		go func() { errCh <- s.grpcSrv.Serve(tcpLis) }()
+	}
+
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
