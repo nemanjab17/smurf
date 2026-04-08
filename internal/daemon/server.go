@@ -57,13 +57,38 @@ func New(cfg Config) (*Server, error) {
 		slog.Warn("failed to ensure ssh keypair", "err", err)
 	}
 
-	return &Server{
+	srv := &Server{
 		cfg:       cfg,
 		store:     store,
 		vmMgr:     vmMgr,
 		sshPubKey: sshPubKey,
 		proxy:     newSSHProxy(),
-	}, nil
+	}
+
+	// Recover proxy ports for smurfs that are still running
+	srv.recoverProxies()
+
+	return srv, nil
+}
+
+// recoverProxies restarts SSH proxy listeners for smurfs marked as running
+// in the database. Called on startup to handle smurfd restarts.
+func (s *Server) recoverProxies() {
+	ctx := context.Background()
+	running := state.StatusRunning
+	smurfs, err := s.store.ListSmurfs(ctx, state.SmurfFilter{Status: &running})
+	if err != nil {
+		slog.Warn("failed to list running smurfs for proxy recovery", "err", err)
+		return
+	}
+	for _, sm := range smurfs {
+		port, err := s.proxy.Start(sm.ID, sm.IP)
+		if err != nil {
+			slog.Warn("failed to recover proxy", "smurf", sm.Name, "err", err)
+			continue
+		}
+		slog.Info("recovered ssh proxy", "smurf", sm.Name, "port", port)
+	}
 }
 
 // NewWithDeps creates a Server with externally provided dependencies.
@@ -169,7 +194,7 @@ func (s *Server) CreateSmurf(ctx context.Context, req *smurfv1.CreateSmurfReques
 		slog.Warn("ssh proxy start failed", "smurf", sm.Name, "err", err)
 	}
 
-	return &smurfv1.SmurfResponse{Smurf: smurfToProto(sm)}, nil
+	return &smurfv1.SmurfResponse{Smurf: s.smurfToProto(sm)}, nil
 }
 
 func (s *Server) GetSmurf(ctx context.Context, req *smurfv1.GetSmurfRequest) (*smurfv1.SmurfResponse, error) {
@@ -177,7 +202,7 @@ func (s *Server) GetSmurf(ctx context.Context, req *smurfv1.GetSmurfRequest) (*s
 	if err != nil {
 		return nil, err
 	}
-	return &smurfv1.SmurfResponse{Smurf: smurfToProto(sm)}, nil
+	return &smurfv1.SmurfResponse{Smurf: s.smurfToProto(sm)}, nil
 }
 
 func (s *Server) ListSmurfs(ctx context.Context, req *smurfv1.ListSmurfsRequest) (*smurfv1.ListSmurfsResponse, error) {
@@ -192,7 +217,7 @@ func (s *Server) ListSmurfs(ctx context.Context, req *smurfv1.ListSmurfsRequest)
 	}
 	resp := &smurfv1.ListSmurfsResponse{}
 	for i := range smurfs {
-		resp.Smurfs = append(resp.Smurfs, smurfToProto(&smurfs[i]))
+		resp.Smurfs = append(resp.Smurfs, s.smurfToProto(&smurfs[i]))
 	}
 	return resp, nil
 }
@@ -304,12 +329,13 @@ func (s *Server) GetSSHConfig(ctx context.Context, req *smurfv1.GetSSHConfigRequ
 
 // ── Converters ────────────────────────────────────────────────────────────────
 
-func smurfToProto(sm *state.Smurf) *smurfv1.SmurfInfo {
+func (s *Server) smurfToProto(sm *state.Smurf) *smurfv1.SmurfInfo {
 	return &smurfv1.SmurfInfo{
 		Id:        sm.ID,
 		Name:      sm.Name,
 		Status:    string(sm.Status),
 		Ip:        sm.IP,
+		SshPort:   int32(s.proxy.Port(sm.ID)),
 		PapaId:    sm.PapaID,
 		Vcpus:     int32(sm.VCPUs),
 		MemoryMb:  int32(sm.MemoryMB),

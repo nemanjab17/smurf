@@ -17,7 +17,6 @@ func NewRootCmd() *cobra.Command {
 		newListCmd(),
 		newStopCmd(),
 		newDeleteCmd(),
-		newSSHCmd(),
 		newConsoleCmd(),
 		papa.NewCmd(),
 	)

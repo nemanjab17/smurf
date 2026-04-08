@@ -37,12 +37,15 @@ func newListCmd() *cobra.Command {
 			}
 
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-			fmt.Fprintln(w, "NAME\tSTATUS\tIP\tVCPUS\tMEMORY\tPAPA\tCREATED")
+			fmt.Fprintln(w, "NAME\tSTATUS\tIP\tSSH\tVCPUS\tMEMORY\tCREATED")
 			for _, sm := range resp.Smurfs {
-				fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%dMB\t%s\t%s\n",
-					sm.Name, sm.Status, sm.Ip,
-					sm.Vcpus, sm.MemoryMb,
-					sm.PapaId, sm.CreatedAt,
+				sshCol := "-"
+				if sm.SshPort > 0 {
+					sshCol = fmt.Sprintf(":%d", sm.SshPort)
+				}
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%dMB\t%s\n",
+					sm.Name, sm.Status, sm.Ip, sshCol,
+					sm.Vcpus, sm.MemoryMb, sm.CreatedAt,
 				)
 			}
 			return w.Flush()

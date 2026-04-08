@@ -5,6 +5,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
+	"os/exec"
+	"strings"
 	"sync"
 )
 
@@ -22,6 +24,9 @@ type Manager struct {
 }
 
 func NewManager() (*Manager, error) {
+	// Clean up stale TAPs from previous crashes
+	cleanStaleTaps()
+
 	if err := EnsureBridge(BridgeName, BridgeCIDR); err != nil {
 		return nil, fmt.Errorf("ensure bridge: %w", err)
 	}
@@ -31,6 +36,25 @@ func NewManager() (*Manager, error) {
 		allocated: make(map[string]string),
 		nextIP:    binary.BigEndian.Uint32(base),
 	}, nil
+}
+
+// cleanStaleTaps removes any leftover tap-* devices from previous runs.
+func cleanStaleTaps() {
+	out, err := exec.Command("ip", "-o", "link", "show").Output()
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		// Extract device name: "12: tap-01KNPR: <...>"
+		parts := strings.Fields(line)
+		if len(parts) < 2 {
+			continue
+		}
+		name := strings.TrimSuffix(parts[1], ":")
+		if strings.HasPrefix(name, "tap-") {
+			_ = DeleteTap(name)
+		}
+	}
 }
 
 func (m *Manager) Setup(ctx context.Context, smurfID string) (*Config, error) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -72,6 +73,9 @@ func (s *SQLiteStore) CreateSmurf(ctx context.Context, sm *Smurf) error {
 		sm.CreatedAt,
 	)
 	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE constraint") {
+			return fmt.Errorf("smurf %q already exists", sm.Name)
+		}
 		return fmt.Errorf("insert smurf: %w", err)
 	}
 	return nil

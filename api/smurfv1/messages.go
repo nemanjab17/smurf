@@ -36,6 +36,7 @@ type SmurfInfo struct {
 	Name      string `json:"name"`
 	Status    string `json:"status"`
 	Ip        string `json:"ip"`
+	SshPort   int32  `json:"ssh_port"` // proxy port on daemon host (0 if not running)
 	PapaId    string `json:"papa_id"`
 	Vcpus     int32  `json:"vcpus"`
 	MemoryMb  int32  `json:"memory_mb"`
