@@ -105,7 +105,7 @@ type SSHConfigResponse struct {
 	Ip         string `json:"ip"`
 	User       string `json:"user"`
 	PrivateKey string `json:"private_key"` // PEM-encoded ed25519 private key
-	HostUser   string `json:"host_user"`   // user for the proxy/jump host
+	ProxyPort  int32  `json:"proxy_port"`  // TCP port on daemon host forwarding to smurf:22
 }
 
 // ── Shared ────────────────────────────────────────────────────────────────────

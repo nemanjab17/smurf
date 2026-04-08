@@ -20,7 +20,7 @@ func newConsoleCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "console <name>",
 		Short: "Open an SSH console to a smurf",
-		Long:  "Connects to a smurf via SSH. Automatically fetches keys and proxies through the daemon host when remote.",
+		Long:  "Connects to a smurf via SSH. Automatically fetches keys and connects through the daemon's SSH proxy.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, conn, err := connect()
@@ -40,7 +40,7 @@ func newConsoleCmd() *cobra.Command {
 				user = resp.User
 			}
 
-			// Write the private key to a cached temp file
+			// Cache the private key locally
 			keyDir := filepath.Join(userCacheDir(), "smurf", "keys")
 			if err := os.MkdirAll(keyDir, 0700); err != nil {
 				return fmt.Errorf("create key cache dir: %w", err)
@@ -55,31 +55,30 @@ func newConsoleCmd() *cobra.Command {
 				return fmt.Errorf("ssh not found in PATH")
 			}
 
-			target := fmt.Sprintf("%s@%s", user, resp.Ip)
-			sshArgs := []string{
-				"ssh",
-				"-i", keyPath,
-				"-o", "StrictHostKeyChecking=no",
-				"-o", "UserKnownHostsFile=/dev/null",
-				"-o", "LogLevel=ERROR",
-			}
-
-			// When remote, proxy through the daemon host
-			if h := client.Host(); h != "" {
+			// When remote with a proxy port, SSH directly to daemon-host:proxy-port.
+			// No jump host, no proxy keys needed.
+			sshHost := resp.Ip
+			sshPort := "22"
+			if h := client.Host(); h != "" && resp.ProxyPort > 0 {
 				host, _, _ := net.SplitHostPort(h)
 				if host == "" {
 					host = h
 				}
-				proxyTarget := fmt.Sprintf("%s@%s", resp.HostUser, host)
-				proxySSH := fmt.Sprintf("ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR")
-				if pk := os.Getenv("SMURF_PROXY_KEY"); pk != "" {
-					proxySSH += fmt.Sprintf(" -i %s", pk)
-				}
-				proxySSH += fmt.Sprintf(" -W %%h:%%p %s", proxyTarget)
-				sshArgs = append(sshArgs, "-o", fmt.Sprintf("ProxyCommand=%s", proxySSH))
+				sshHost = host
+				sshPort = fmt.Sprintf("%d", resp.ProxyPort)
 			}
 
-			sshArgs = append(sshArgs, target)
+			target := fmt.Sprintf("%s@%s", user, sshHost)
+			sshArgs := []string{
+				"ssh",
+				"-i", keyPath,
+				"-p", sshPort,
+				"-o", "StrictHostKeyChecking=no",
+				"-o", "UserKnownHostsFile=/dev/null",
+				"-o", "LogLevel=ERROR",
+				target,
+			}
+
 			return syscall.Exec(sshBin, sshArgs, os.Environ())
 		},
 	}

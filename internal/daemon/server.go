@@ -26,6 +26,7 @@ type Server struct {
 	vmMgr     *vm.Manager
 	grpcSrv   *grpc.Server
 	sshPubKey []byte
+	proxy     *sshProxy
 }
 
 func New(cfg Config) (*Server, error) {
@@ -61,6 +62,7 @@ func New(cfg Config) (*Server, error) {
 		store:     store,
 		vmMgr:     vmMgr,
 		sshPubKey: sshPubKey,
+		proxy:     newSSHProxy(),
 	}, nil
 }
 
@@ -161,6 +163,12 @@ func (s *Server) CreateSmurf(ctx context.Context, req *smurfv1.CreateSmurfReques
 	if err != nil {
 		return nil, err
 	}
+
+	// Start SSH proxy for this smurf
+	if _, err := s.proxy.Start(sm.ID, sm.IP); err != nil {
+		slog.Warn("ssh proxy start failed", "smurf", sm.Name, "err", err)
+	}
+
 	return &smurfv1.SmurfResponse{Smurf: smurfToProto(sm)}, nil
 }
 
@@ -190,6 +198,11 @@ func (s *Server) ListSmurfs(ctx context.Context, req *smurfv1.ListSmurfsRequest)
 }
 
 func (s *Server) StopSmurf(ctx context.Context, req *smurfv1.StopSmurfRequest) (*smurfv1.OKResponse, error) {
+	sm, err := s.store.GetSmurf(ctx, req.NameOrId)
+	if err != nil {
+		return nil, err
+	}
+	s.proxy.Stop(sm.ID)
 	if err := s.vmMgr.Stop(ctx, req.NameOrId); err != nil {
 		return nil, err
 	}
@@ -197,6 +210,11 @@ func (s *Server) StopSmurf(ctx context.Context, req *smurfv1.StopSmurfRequest) (
 }
 
 func (s *Server) DeleteSmurf(ctx context.Context, req *smurfv1.DeleteSmurfRequest) (*smurfv1.OKResponse, error) {
+	sm, err := s.store.GetSmurf(ctx, req.NameOrId)
+	if err != nil {
+		return nil, err
+	}
+	s.proxy.Stop(sm.ID)
 	if err := s.vmMgr.Delete(ctx, req.NameOrId); err != nil {
 		return nil, err
 	}
@@ -274,11 +292,13 @@ func (s *Server) GetSSHConfig(ctx context.Context, req *smurfv1.GetSSHConfigRequ
 		return nil, fmt.Errorf("read ssh key: %w", err)
 	}
 
+	port := s.proxy.Port(sm.ID)
+
 	return &smurfv1.SSHConfigResponse{
 		Ip:         sm.IP,
 		User:       "root",
 		PrivateKey: string(privKey),
-		HostUser:   "root",
+		ProxyPort:  int32(port),
 	}, nil
 }
 
