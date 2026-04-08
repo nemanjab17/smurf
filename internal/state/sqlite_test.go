@@ -124,6 +124,36 @@ func TestPapa_ListAndDelete(t *testing.T) {
 	}
 }
 
+func TestPapa_Update(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	p := testPapa("base")
+	if err := s.CreatePapa(ctx, p); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	p.SnapshotDir = "/var/lib/smurf/papas/papa-base/snapshot"
+	p.DockerReady = true
+	if err := s.UpdatePapa(ctx, p); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+
+	got, err := s.GetPapa(ctx, "base")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.SnapshotDir != p.SnapshotDir {
+		t.Errorf("SnapshotDir: got %q want %q", got.SnapshotDir, p.SnapshotDir)
+	}
+	if !got.DockerReady {
+		t.Error("DockerReady should be true")
+	}
+	if got.UpdatedAt.Before(got.CreatedAt) {
+		t.Error("UpdatedAt should be >= CreatedAt")
+	}
+}
+
 // ── Smurf CRUD ────────────────────────────────────────────────────────────────
 
 func TestSmurf_CreateAndGet(t *testing.T) {

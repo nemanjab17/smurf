@@ -21,17 +21,18 @@ import (
 
 type Server struct {
 	smurfv1.UnimplementedSmurfServiceServer
-	cfg     Config
-	store   state.Store
-	vmMgr   *vm.Manager
-	grpcSrv *grpc.Server
+	cfg       Config
+	store     state.Store
+	vmMgr     *vm.Manager
+	grpcSrv   *grpc.Server
+	sshPubKey []byte
 }
 
 func New(cfg Config) (*Server, error) {
 	if err := os.MkdirAll("/var/lib/smurf", 0755); err != nil {
 		return nil, fmt.Errorf("create data dir: %w", err)
 	}
-	for _, dir := range []string{vm.SocketDir, vm.SmurfsDir, vm.PapasDir} {
+	for _, dir := range []string{vm.SocketDir, vm.SmurfsDir, vm.PapasDir, vm.SSHDir} {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return nil, fmt.Errorf("create dir %s: %w", dir, err)
 		}
@@ -49,20 +50,29 @@ func New(cfg Config) (*Server, error) {
 
 	vmMgr := vm.NewManager(store, netMgr, vm.NewFirecrackerBackend())
 
+	// Generate SSH keypair on first startup
+	sshPubKey, err := vm.EnsureSSHKeypair(vm.SSHDir)
+	if err != nil {
+		slog.Warn("failed to ensure ssh keypair", "err", err)
+	}
+
 	return &Server{
-		cfg:   cfg,
-		store: store,
-		vmMgr: vmMgr,
+		cfg:       cfg,
+		store:     store,
+		vmMgr:     vmMgr,
+		sshPubKey: sshPubKey,
 	}, nil
 }
 
 // NewWithDeps creates a Server with externally provided dependencies.
 // Used in tests to inject mock backends and pre-built stores.
 func NewWithDeps(cfg Config, store state.Store, netMgr network.Networker, backend vm.Backend) *Server {
+	mgr := vm.NewManager(store, netMgr, backend)
+	mgr.SetSkipSSHWait(true)
 	return &Server{
 		cfg:   cfg,
 		store: store,
-		vmMgr: vm.NewManager(store, netMgr, backend),
+		vmMgr: mgr,
 	}
 }
 
@@ -124,6 +134,10 @@ func (s *Server) Run() error {
 // ── RPC handlers ─────────────────────────────────────────────────────────────
 
 func (s *Server) CreateSmurf(ctx context.Context, req *smurfv1.CreateSmurfRequest) (*smurfv1.SmurfResponse, error) {
+	sshKey := req.SshPubKey
+	if sshKey == "" {
+		sshKey = string(s.sshPubKey)
+	}
 	sm, err := s.vmMgr.Create(ctx, vm.CreateOpts{
 		Name:       req.Name,
 		PapaID:     req.PapaId,
@@ -132,6 +146,7 @@ func (s *Server) CreateSmurf(ctx context.Context, req *smurfv1.CreateSmurfReques
 		DiskSizeMB: int(req.DiskSizeMb),
 		RepoURL:    req.RepoUrl,
 		RepoBranch: req.RepoBranch,
+		SSHPubKey:  sshKey,
 	})
 	if err != nil {
 		return nil, err
@@ -222,6 +237,17 @@ func (s *Server) DeletePapa(ctx context.Context, req *smurfv1.DeletePapaRequest)
 		return nil, err
 	}
 	return &smurfv1.OKResponse{Message: "deleted"}, nil
+}
+
+func (s *Server) SnapshotPapa(ctx context.Context, req *smurfv1.SnapshotPapaRequest) (*smurfv1.SnapshotPapaResponse, error) {
+	if err := s.vmMgr.SnapshotPapa(ctx, req.NameOrId); err != nil {
+		return nil, err
+	}
+	p, err := s.store.GetPapa(ctx, req.NameOrId)
+	if err != nil {
+		return nil, err
+	}
+	return &smurfv1.SnapshotPapaResponse{Papa: papaToProto(p)}, nil
 }
 
 // ── Converters ────────────────────────────────────────────────────────────────

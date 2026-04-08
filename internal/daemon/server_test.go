@@ -363,6 +363,85 @@ func TestServer_CreateSmurf_DuplicateName(t *testing.T) {
 	}
 }
 
+func TestServer_SnapshotPapa(t *testing.T) {
+	h := newHarness(t)
+	seedPapa(t, h, "base")
+
+	resp, err := h.client.SnapshotPapa(context.Background(), &smurfv1.SnapshotPapaRequest{NameOrId: "base"})
+	if err != nil {
+		t.Fatalf("snapshot papa: %v", err)
+	}
+
+	if resp.Papa.SnapshotDir == "" {
+		t.Error("snapshot dir should not be empty after snapshot")
+	}
+
+	// Backend should have received Boot + Snapshot + Stop calls
+	if len(h.backend.BootCalls()) != 1 {
+		t.Errorf("want 1 boot call for snapshot, got %d", len(h.backend.BootCalls()))
+	}
+	if len(h.backend.SnapshotCalls()) != 1 {
+		t.Errorf("want 1 snapshot call, got %d", len(h.backend.SnapshotCalls()))
+	}
+	if len(h.backend.StopCalls()) != 1 {
+		t.Errorf("want 1 stop call, got %d", len(h.backend.StopCalls()))
+	}
+}
+
+func TestServer_CreateSmurf_FromSnapshot(t *testing.T) {
+	h := newHarness(t)
+	seedPapa(t, h, "base")
+
+	// Snapshot the papa first
+	_, err := h.client.SnapshotPapa(context.Background(), &smurfv1.SnapshotPapaRequest{NameOrId: "base"})
+	if err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+
+	// Now create a smurf — should use Restore, not Boot
+	bootsBefore := len(h.backend.BootCalls())
+	resp, err := h.client.CreateSmurf(context.Background(), &smurfv1.CreateSmurfRequest{
+		Name:   "dev",
+		PapaId: "base",
+	})
+	if err != nil {
+		t.Fatalf("create smurf: %v", err)
+	}
+
+	if resp.Smurf.Status != "running" {
+		t.Errorf("status: got %q want running", resp.Smurf.Status)
+	}
+
+	// Boot calls should NOT have increased (snapshot path uses Restore)
+	if len(h.backend.BootCalls()) != bootsBefore {
+		t.Errorf("expected no new Boot calls after snapshot restore, got %d new",
+			len(h.backend.BootCalls())-bootsBefore)
+	}
+
+	// Restore should have been called once
+	if len(h.backend.RestoreCalls()) != 1 {
+		t.Errorf("want 1 restore call, got %d", len(h.backend.RestoreCalls()))
+	}
+}
+
+func TestServer_CreateSmurf_WithSSHKey(t *testing.T) {
+	h := newHarness(t)
+	seedPapa(t, h, "base")
+
+	resp, err := h.client.CreateSmurf(context.Background(), &smurfv1.CreateSmurfRequest{
+		Name:      "dev",
+		PapaId:    "base",
+		SshPubKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITest test@test",
+	})
+	if err != nil {
+		t.Fatalf("create smurf: %v", err)
+	}
+
+	if resp.Smurf.Status != "running" {
+		t.Errorf("status: got %q want running", resp.Smurf.Status)
+	}
+}
+
 func TestServer_MultipleSmurfs_IsolatedIPs(t *testing.T) {
 	h := newHarness(t)
 	seedPapa(t, h, "base")

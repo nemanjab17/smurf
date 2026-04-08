@@ -20,6 +20,7 @@ type SmurfServiceServer interface {
 	GetPapa(context.Context, *GetPapaRequest) (*PapaResponse, error)
 	ListPapas(context.Context, *ListPapasRequest) (*ListPapasResponse, error)
 	DeletePapa(context.Context, *DeletePapaRequest) (*OKResponse, error)
+	SnapshotPapa(context.Context, *SnapshotPapaRequest) (*SnapshotPapaResponse, error)
 
 	mustEmbedUnimplementedSmurfServiceServer()
 }
@@ -54,6 +55,9 @@ func (UnimplementedSmurfServiceServer) ListPapas(_ context.Context, _ *ListPapas
 func (UnimplementedSmurfServiceServer) DeletePapa(_ context.Context, _ *DeletePapaRequest) (*OKResponse, error) {
 	return nil, errUnimplemented("DeletePapa")
 }
+func (UnimplementedSmurfServiceServer) SnapshotPapa(_ context.Context, _ *SnapshotPapaRequest) (*SnapshotPapaResponse, error) {
+	return nil, errUnimplemented("SnapshotPapa")
+}
 func (UnimplementedSmurfServiceServer) mustEmbedUnimplementedSmurfServiceServer() {}
 
 // ── Registration ──────────────────────────────────────────────────────────────
@@ -77,6 +81,7 @@ var _SmurfService_serviceDesc = grpc.ServiceDesc{
 		{MethodName: "GetPapa", Handler: _SmurfService_GetPapa_Handler},
 		{MethodName: "ListPapas", Handler: _SmurfService_ListPapas_Handler},
 		{MethodName: "DeletePapa", Handler: _SmurfService_DeletePapa_Handler},
+		{MethodName: "SnapshotPapa", Handler: _SmurfService_SnapshotPapa_Handler},
 	},
 	Streams: []grpc.StreamDesc{},
 }
@@ -153,4 +158,12 @@ func _SmurfService_DeletePapa_Handler(srv any, ctx context.Context, dec func(any
 		return nil, err
 	}
 	return srv.(SmurfServiceServer).DeletePapa(ctx, req)
+}
+
+func _SmurfService_SnapshotPapa_Handler(srv any, ctx context.Context, dec func(any) error, _ grpc.UnaryServerInterceptor) (any, error) {
+	req := new(SnapshotPapaRequest)
+	if err := dec(req); err != nil {
+		return nil, err
+	}
+	return srv.(SmurfServiceServer).SnapshotPapa(ctx, req)
 }

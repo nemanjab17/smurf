@@ -35,6 +35,7 @@ type PapaSmurf struct {
 	KernelPath  string    `db:"kernel_path"`
 	RootfsPath  string    `db:"rootfs_path"`
 	SnapshotDir string    `db:"snapshot_dir"`
+	SnapshotIP  string    `db:"snapshot_ip"`  // guest IP baked into the snapshot
 	DockerReady bool      `db:"docker_ready"`
 	CreatedAt   time.Time `db:"created_at"`
 	UpdatedAt   time.Time `db:"updated_at"`

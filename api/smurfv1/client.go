@@ -19,6 +19,7 @@ type SmurfServiceClient interface {
 	GetPapa(ctx context.Context, in *GetPapaRequest, opts ...grpc.CallOption) (*PapaResponse, error)
 	ListPapas(ctx context.Context, in *ListPapasRequest, opts ...grpc.CallOption) (*ListPapasResponse, error)
 	DeletePapa(ctx context.Context, in *DeletePapaRequest, opts ...grpc.CallOption) (*OKResponse, error)
+	SnapshotPapa(ctx context.Context, in *SnapshotPapaRequest, opts ...grpc.CallOption) (*SnapshotPapaResponse, error)
 }
 
 type smurfServiceClient struct {
@@ -80,6 +81,12 @@ func (c *smurfServiceClient) ListPapas(ctx context.Context, in *ListPapasRequest
 func (c *smurfServiceClient) DeletePapa(ctx context.Context, in *DeletePapaRequest, opts ...grpc.CallOption) (*OKResponse, error) {
 	out := new(OKResponse)
 	err := c.cc.Invoke(ctx, "/"+_serviceName+"/DeletePapa", in, out, opts...)
+	return out, err
+}
+
+func (c *smurfServiceClient) SnapshotPapa(ctx context.Context, in *SnapshotPapaRequest, opts ...grpc.CallOption) (*SnapshotPapaResponse, error) {
+	out := new(SnapshotPapaResponse)
+	err := c.cc.Invoke(ctx, "/"+_serviceName+"/SnapshotPapa", in, out, opts...)
 	return out, err
 }
 

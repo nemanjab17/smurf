@@ -12,6 +12,7 @@ type CreateSmurfRequest struct {
 	DiskSizeMb int32  `json:"disk_size_mb"`
 	RepoUrl    string `json:"repo_url"`
 	RepoBranch string `json:"repo_branch"`
+	SshPubKey  string `json:"ssh_pub_key"`
 }
 
 type GetSmurfRequest struct {
@@ -66,6 +67,14 @@ type ListPapasRequest struct{}
 
 type DeletePapaRequest struct {
 	NameOrId string `json:"name_or_id"`
+}
+
+type SnapshotPapaRequest struct {
+	NameOrId string `json:"name_or_id"`
+}
+
+type SnapshotPapaResponse struct {
+	Papa *PapaInfo `json:"papa"`
 }
 
 type PapaInfo struct {
