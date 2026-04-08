@@ -8,6 +8,8 @@ const (
 	DataDir           = "/var/lib/smurf"
 	SmurfsDir         = "/var/lib/smurf/smurfs"
 	PapasDir          = "/var/lib/smurf/papas"
+	SSHDir            = "/var/lib/smurf/ssh"
+	SSHKeyName        = "smurf_ed25519"
 )
 
 type CreateOpts struct {

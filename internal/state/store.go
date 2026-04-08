@@ -13,6 +13,7 @@ type Store interface {
 	CreatePapa(ctx context.Context, p *PapaSmurf) error
 	GetPapa(ctx context.Context, nameOrID string) (*PapaSmurf, error)
 	ListPapas(ctx context.Context) ([]PapaSmurf, error)
+	UpdatePapa(ctx context.Context, p *PapaSmurf) error
 	DeletePapa(ctx context.Context, id string) error
 
 	Close() error

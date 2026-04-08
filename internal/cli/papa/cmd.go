@@ -11,6 +11,7 @@ func NewCmd() *cobra.Command {
 		newRegisterCmd(),
 		newListCmd(),
 		newDeleteCmd(),
+		newSnapshotCmd(),
 	)
 	return cmd
 }

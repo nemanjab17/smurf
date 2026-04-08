@@ -52,6 +52,7 @@ func (s *SQLiteStore) migrate() error {
 			kernel_path  TEXT NOT NULL,
 			rootfs_path  TEXT NOT NULL,
 			snapshot_dir TEXT NOT NULL DEFAULT '',
+			snapshot_ip  TEXT NOT NULL DEFAULT '',
 			docker_ready INTEGER NOT NULL DEFAULT 0,
 			created_at   DATETIME NOT NULL,
 			updated_at   DATETIME NOT NULL
@@ -141,23 +142,23 @@ func (s *SQLiteStore) DeleteSmurf(ctx context.Context, id string) error {
 
 func (s *SQLiteStore) CreatePapa(ctx context.Context, p *PapaSmurf) error {
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO papa_smurfs (id, name, kernel_path, rootfs_path, snapshot_dir, docker_ready, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		p.ID, p.Name, p.KernelPath, p.RootfsPath, p.SnapshotDir, p.DockerReady, p.CreatedAt, p.UpdatedAt,
+		INSERT INTO papa_smurfs (id, name, kernel_path, rootfs_path, snapshot_dir, snapshot_ip, docker_ready, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.ID, p.Name, p.KernelPath, p.RootfsPath, p.SnapshotDir, p.SnapshotIP, p.DockerReady, p.CreatedAt, p.UpdatedAt,
 	)
 	return err
 }
 
 func (s *SQLiteStore) GetPapa(ctx context.Context, nameOrID string) (*PapaSmurf, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, name, kernel_path, rootfs_path, snapshot_dir, docker_ready, created_at, updated_at
+		SELECT id, name, kernel_path, rootfs_path, snapshot_dir, snapshot_ip, docker_ready, created_at, updated_at
 		FROM papa_smurfs WHERE id=? OR name=?`, nameOrID, nameOrID)
 	return scanPapa(row)
 }
 
 func (s *SQLiteStore) ListPapas(ctx context.Context) ([]PapaSmurf, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, name, kernel_path, rootfs_path, snapshot_dir, docker_ready, created_at, updated_at
+		SELECT id, name, kernel_path, rootfs_path, snapshot_dir, snapshot_ip, docker_ready, created_at, updated_at
 		FROM papa_smurfs ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
@@ -173,6 +174,16 @@ func (s *SQLiteStore) ListPapas(ctx context.Context) ([]PapaSmurf, error) {
 		papas = append(papas, *p)
 	}
 	return papas, rows.Err()
+}
+
+func (s *SQLiteStore) UpdatePapa(ctx context.Context, p *PapaSmurf) error {
+	p.UpdatedAt = time.Now()
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE papa_smurfs SET snapshot_dir=?, snapshot_ip=?, docker_ready=?, updated_at=?
+		WHERE id=?`,
+		p.SnapshotDir, p.SnapshotIP, p.DockerReady, p.UpdatedAt, p.ID,
+	)
+	return err
 }
 
 func (s *SQLiteStore) DeletePapa(ctx context.Context, id string) error {
@@ -206,7 +217,7 @@ func scanPapa(row scanner) (*PapaSmurf, error) {
 	var p PapaSmurf
 	err := row.Scan(
 		&p.ID, &p.Name, &p.KernelPath, &p.RootfsPath,
-		&p.SnapshotDir, &p.DockerReady, &p.CreatedAt, &p.UpdatedAt,
+		&p.SnapshotDir, &p.SnapshotIP, &p.DockerReady, &p.CreatedAt, &p.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("not found")

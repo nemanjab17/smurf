@@ -69,11 +69,6 @@ func boot(ctx context.Context, id, kernelPath, rootfsPath string, opts CreateOpt
 				StaticConfiguration: &firecracker.StaticNetworkConfiguration{
 					MacAddress:  netCfg.MacAddress,
 					HostDevName: netCfg.TapDevice,
-					IPConfiguration: &firecracker.IPConfiguration{
-						IPAddr:      mustParseCIDR(netCfg.IP + netCfg.Mask),
-						Gateway:     mustParseIP(netCfg.Gateway),
-						Nameservers: []string{"8.8.8.8", "1.1.1.1"},
-					},
 				},
 			},
 		},
