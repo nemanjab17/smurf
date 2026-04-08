@@ -124,14 +124,6 @@ func (m *Manager) Create(ctx context.Context, opts CreateOpts) (*state.Smurf, er
 		}
 	}
 
-	// For snapshot restore, inject host entropy into the rootfs so the
-	// guest can re-seed its CRNG after resume.
-	if useSnapshot {
-		if err := InjectEntropySeed(rootfsPath); err != nil {
-			slog.Warn("entropy seed injection failed", "err", err)
-		}
-	}
-
 	// Use snapshot restore if the papa has one, otherwise fresh boot
 	var rvm *RunningVM
 	if useSnapshot {

@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -58,38 +57,28 @@ func EnsureSSHKeypair(dir string) ([]byte, error) {
 }
 
 // InjectSSHKey writes the public key into /root/.ssh/authorized_keys inside
-// an ext4 rootfs image using debugfs.
+// an ext4 rootfs image by loop-mounting it.
 func InjectSSHKey(rootfsPath string, pubKey []byte) error {
-	// Use debugfs to create the .ssh dir and write the key without mounting.
-	cmds := fmt.Sprintf(
-		"mkdir /root/.ssh\nwrite /dev/stdin /root/.ssh/authorized_keys\n",
-	)
-
-	// debugfs approach: write to a temp file first, then use debugfs -w to copy it in.
-	tmpKey, err := os.CreateTemp("", "smurf-pubkey-*")
+	mountDir, err := os.MkdirTemp("", "smurf-mount-*")
 	if err != nil {
-		return fmt.Errorf("create temp key file: %w", err)
+		return fmt.Errorf("create mount dir: %w", err)
 	}
-	defer os.Remove(tmpKey.Name())
+	defer os.RemoveAll(mountDir)
 
-	if _, err := tmpKey.Write(pubKey); err != nil {
-		tmpKey.Close()
-		return fmt.Errorf("write temp key: %w", err)
+	if out, err := exec.Command("mount", "-o", "loop", rootfsPath, mountDir).CombinedOutput(); err != nil {
+		return fmt.Errorf("mount rootfs: %w: %s", err, out)
 	}
-	tmpKey.Close()
+	defer exec.Command("umount", mountDir).Run()
 
-	// debugfs commands: create dir, copy key file in
-	cmds = fmt.Sprintf(
-		"mkdir /root\nmkdir /root/.ssh\ncd /root/.ssh\nwrite %s authorized_keys\n",
-		tmpKey.Name(),
-	)
-
-	cmd := exec.Command("debugfs", "-w", "-f", "/dev/stdin", rootfsPath)
-	cmd.Stdin = strings.NewReader(cmds)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("debugfs inject key: %w: %s", err, out)
+	sshDir := filepath.Join(mountDir, "root", ".ssh")
+	if err := os.MkdirAll(sshDir, 0700); err != nil {
+		return fmt.Errorf("create .ssh dir: %w", err)
 	}
+
+	if err := os.WriteFile(filepath.Join(sshDir, "authorized_keys"), pubKey, 0600); err != nil {
+		return fmt.Errorf("write authorized_keys: %w", err)
+	}
+
 	return nil
 }
 
