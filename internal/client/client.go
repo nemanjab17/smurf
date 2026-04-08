@@ -9,8 +9,9 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	smurfv1 "github.com/nemanjab17/smurf/api/smurfv1"
-	"github.com/nemanjab17/smurf/internal/daemon"
 )
+
+const defaultSocketPath = "/var/run/smurfd.sock"
 
 // Host returns the configured daemon address. Empty means local Unix socket.
 func Host() string {
@@ -18,7 +19,7 @@ func Host() string {
 }
 
 func Connect() (smurfv1.SmurfServiceClient, *grpc.ClientConn, error) {
-	target := "unix://" + daemon.DefaultSocketPath
+	target := "unix://" + defaultSocketPath
 	if h := Host(); h != "" {
 		target = h
 	}
