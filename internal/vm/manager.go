@@ -49,18 +49,17 @@ func (m *Manager) Create(ctx context.Context, opts CreateOpts) (*state.Smurf, er
 	id := ulid.Make().String()
 	useSnapshot := papa.SnapshotDir != ""
 
-	// For snapshot restore, recreate the TAP the snapshot expects and use
-	// the guest IP baked into the snapshot. For fresh boot, allocate new.
+	// For snapshot restore, recreate the TAP with the exact same name and
+	// MAC used during snapshot creation, and use the baked-in guest IP.
+	// For fresh boot, allocate a new IP and TAP via the network manager.
 	var netCfg *network.Config
 	var netID string // ID used for Setup/Teardown
 	if useSnapshot {
 		netID = "snap-" + papa.Name
-		netCfg, err = m.net.Setup(ctx, netID)
+		netCfg, err = m.net.SetupFixed(ctx, netID, papa.SnapshotIP)
 		if err != nil {
 			return nil, fmt.Errorf("network setup: %w", err)
 		}
-		// Override the allocated IP with the snapshot's baked-in guest IP
-		netCfg.IP = papa.SnapshotIP
 	} else {
 		netID = id
 		netCfg, err = m.net.Setup(ctx, netID)
@@ -76,7 +75,14 @@ func (m *Manager) Create(ctx context.Context, opts CreateOpts) (*state.Smurf, er
 	}
 
 	rootfsPath := filepath.Join(smurfDir, "rootfs.ext4")
-	if err := copyFile(papa.RootfsPath, rootfsPath); err != nil {
+	// For snapshot restores, copy the snapshot's rootfs (which has host keys
+	// and runtime state from the snapshot boot). For fresh boots, copy the
+	// papa's base rootfs.
+	srcRootfs := papa.RootfsPath
+	if useSnapshot {
+		srcRootfs = filepath.Join(papa.SnapshotDir, "rootfs.ext4")
+	}
+	if err := copyFile(srcRootfs, rootfsPath); err != nil {
 		_ = m.net.Teardown(ctx, netID)
 		_ = os.RemoveAll(smurfDir)
 		return nil, fmt.Errorf("copy rootfs: %w", err)

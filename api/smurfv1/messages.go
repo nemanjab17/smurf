@@ -95,6 +95,19 @@ type ListPapasResponse struct {
 	Papas []*PapaInfo `json:"papas"`
 }
 
+// ── SSH ──────────────────────────────────────────────────────────────────────
+
+type GetSSHConfigRequest struct {
+	NameOrId string `json:"name_or_id"`
+}
+
+type SSHConfigResponse struct {
+	Ip         string `json:"ip"`
+	User       string `json:"user"`
+	PrivateKey string `json:"private_key"` // PEM-encoded ed25519 private key
+	HostUser   string `json:"host_user"`   // user for the proxy/jump host
+}
+
 // ── Shared ────────────────────────────────────────────────────────────────────
 
 type OKResponse struct {

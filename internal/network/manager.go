@@ -55,6 +55,27 @@ func (m *Manager) Setup(ctx context.Context, smurfID string) (*Config, error) {
 	}, nil
 }
 
+func (m *Manager) SetupFixed(ctx context.Context, smurfID string, ip string) (*Config, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	tapName := tapName(smurfID)
+	mac := generateMAC(smurfID)
+
+	if err := CreateTap(tapName, BridgeName); err != nil {
+		return nil, fmt.Errorf("create tap: %w", err)
+	}
+
+	m.allocated[smurfID] = ip
+	return &Config{
+		TapDevice:  tapName,
+		IP:         ip,
+		Gateway:    GatewayIP,
+		MacAddress: mac,
+		Mask:       "/24",
+	}, nil
+}
+
 func (m *Manager) Teardown(ctx context.Context, smurfID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

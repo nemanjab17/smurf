@@ -260,6 +260,28 @@ func (s *Server) SnapshotPapa(ctx context.Context, req *smurfv1.SnapshotPapaRequ
 	return &smurfv1.SnapshotPapaResponse{Papa: papaToProto(p)}, nil
 }
 
+func (s *Server) GetSSHConfig(ctx context.Context, req *smurfv1.GetSSHConfigRequest) (*smurfv1.SSHConfigResponse, error) {
+	sm, err := s.store.GetSmurf(ctx, req.NameOrId)
+	if err != nil {
+		return nil, err
+	}
+	if sm.Status != state.StatusRunning {
+		return nil, fmt.Errorf("smurf %q is %s, not running", sm.Name, sm.Status)
+	}
+
+	privKey, err := os.ReadFile(fmt.Sprintf("%s/%s", vm.SSHDir, vm.SSHKeyName))
+	if err != nil {
+		return nil, fmt.Errorf("read ssh key: %w", err)
+	}
+
+	return &smurfv1.SSHConfigResponse{
+		Ip:         sm.IP,
+		User:       "root",
+		PrivateKey: string(privKey),
+		HostUser:   "root",
+	}, nil
+}
+
 // ── Converters ────────────────────────────────────────────────────────────────
 
 func smurfToProto(sm *state.Smurf) *smurfv1.SmurfInfo {
