@@ -152,7 +152,7 @@ func (m *Manager) Create(ctx context.Context, opts CreateOpts) (*state.Smurf, er
 
 	// Prepare rootfs: inject SSH key and set hostname
 	if opts.SSHPubKey != "" {
-		if err := PrepareRootfs(rootfsPath, []byte(opts.SSHPubKey), opts.Name); err != nil {
+		if err := PrepareRootfs(rootfsPath, []byte(opts.SSHPubKey), opts.Name, netCfg.IP, netCfg.Gateway); err != nil {
 			slog.Warn("rootfs preparation failed", "err", err)
 		}
 	}
@@ -281,7 +281,7 @@ func (m *Manager) fork(ctx context.Context, opts CreateOpts) (*state.Smurf, erro
 	}
 
 	if opts.SSHPubKey != "" {
-		if err := PrepareRootfs(rootfsPath, []byte(opts.SSHPubKey), opts.Name); err != nil {
+		if err := PrepareRootfs(rootfsPath, []byte(opts.SSHPubKey), opts.Name, netCfg.IP, netCfg.Gateway); err != nil {
 			slog.Warn("rootfs preparation failed", "err", err)
 		}
 	}
@@ -386,6 +386,11 @@ func (m *Manager) SnapshotPapa(ctx context.Context, nameOrID string) error {
 	snapRootfs := filepath.Join(snapshotDir, "rootfs.ext4")
 	if err := copyFile(papa.RootfsPath, snapRootfs); err != nil {
 		return fmt.Errorf("copy rootfs: %w", err)
+	}
+
+	// Inject network config so the guest gets an IP via systemd-networkd.
+	if err := PrepareRootfs(snapRootfs, nil, "", netCfg.IP, netCfg.Gateway); err != nil {
+		slog.Warn("snapshot rootfs prep failed", "err", err)
 	}
 
 	opts := CreateOpts{VCPUs: DefaultVCPUs, MemoryMB: DefaultMemoryMB}

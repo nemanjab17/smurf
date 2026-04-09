@@ -56,8 +56,9 @@ func EnsureSSHKeypair(dir string) ([]byte, error) {
 	return pubBytes, nil
 }
 
-// PrepareRootfs loop-mounts the rootfs and injects SSH keys and the hostname.
-func PrepareRootfs(rootfsPath string, pubKey []byte, hostname string) error {
+// PrepareRootfs loop-mounts the rootfs and injects SSH keys, hostname,
+// and static network configuration.
+func PrepareRootfs(rootfsPath string, pubKey []byte, hostname, ip, gateway string) error {
 	mountDir, err := os.MkdirTemp("", "smurf-mount-*")
 	if err != nil {
 		return fmt.Errorf("create mount dir: %w", err)
@@ -69,26 +70,26 @@ func PrepareRootfs(rootfsPath string, pubKey []byte, hostname string) error {
 	}
 	defer exec.Command("umount", mountDir).Run()
 
-	// Inject SSH key into root
-	rootSSH := filepath.Join(mountDir, "root", ".ssh")
-	if err := os.MkdirAll(rootSSH, 0700); err != nil {
-		return fmt.Errorf("create root .ssh dir: %w", err)
-	}
-	if err := os.WriteFile(filepath.Join(rootSSH, "authorized_keys"), pubKey, 0600); err != nil {
-		return fmt.Errorf("write root authorized_keys: %w", err)
-	}
+	// Inject SSH keys if provided
+	if len(pubKey) > 0 {
+		rootSSH := filepath.Join(mountDir, "root", ".ssh")
+		if err := os.MkdirAll(rootSSH, 0700); err != nil {
+			return fmt.Errorf("create root .ssh dir: %w", err)
+		}
+		if err := os.WriteFile(filepath.Join(rootSSH, "authorized_keys"), pubKey, 0600); err != nil {
+			return fmt.Errorf("write root authorized_keys: %w", err)
+		}
 
-	// Inject SSH key into smurf user
-	smurfSSH := filepath.Join(mountDir, "home", "smurf", ".ssh")
-	if err := os.MkdirAll(smurfSSH, 0700); err != nil {
-		return fmt.Errorf("create smurf .ssh dir: %w", err)
+		smurfSSH := filepath.Join(mountDir, "home", "smurf", ".ssh")
+		if err := os.MkdirAll(smurfSSH, 0700); err != nil {
+			return fmt.Errorf("create smurf .ssh dir: %w", err)
+		}
+		if err := os.WriteFile(filepath.Join(smurfSSH, "authorized_keys"), pubKey, 0600); err != nil {
+			return fmt.Errorf("write smurf authorized_keys: %w", err)
+		}
+		os.Chown(smurfSSH, 1000, 1000)
+		os.Chown(filepath.Join(smurfSSH, "authorized_keys"), 1000, 1000)
 	}
-	if err := os.WriteFile(filepath.Join(smurfSSH, "authorized_keys"), pubKey, 0600); err != nil {
-		return fmt.Errorf("write smurf authorized_keys: %w", err)
-	}
-	// smurf user is uid/gid 1000
-	os.Chown(smurfSSH, 1000, 1000)
-	os.Chown(filepath.Join(smurfSSH, "authorized_keys"), 1000, 1000)
 
 	// Set hostname
 	if hostname != "" {
@@ -99,6 +100,25 @@ func PrepareRootfs(rootfsPath string, pubKey []byte, hostname string) error {
 		if err := os.WriteFile(filepath.Join(mountDir, "etc", "hosts"), []byte(hostsContent), 0644); err != nil {
 			return fmt.Errorf("write hosts: %w", err)
 		}
+	}
+
+	// Configure static IP via systemd-networkd (kernel ip= requires
+	// CONFIG_IP_PNP which newer Firecracker kernels don't include).
+	if ip != "" && gateway != "" {
+		netDir := filepath.Join(mountDir, "etc", "systemd", "network")
+		if err := os.MkdirAll(netDir, 0755); err != nil {
+			return fmt.Errorf("create networkd dir: %w", err)
+		}
+		netCfg := fmt.Sprintf("[Match]\nName=eth0\n\n[Network]\nAddress=%s/24\nGateway=%s\nDNS=8.8.8.8\nDNS=1.1.1.1\n", ip, gateway)
+		if err := os.WriteFile(filepath.Join(netDir, "10-eth0.network"), []byte(netCfg), 0644); err != nil {
+			return fmt.Errorf("write network config: %w", err)
+		}
+
+		// Enable systemd-networkd
+		wantsDir := filepath.Join(mountDir, "etc", "systemd", "system", "multi-user.target.wants")
+		os.MkdirAll(wantsDir, 0755)
+		os.Symlink("/lib/systemd/system/systemd-networkd.service",
+			filepath.Join(wantsDir, "systemd-networkd.service"))
 	}
 
 	return nil

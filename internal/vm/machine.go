@@ -83,7 +83,7 @@ func boot(ctx context.Context, id, kernelPath, rootfsPath string, opts CreateOpt
 	cfg := firecracker.Config{
 		SocketPath:      socketPath,
 		KernelImagePath: kernelPath,
-		KernelArgs:      kernelArgs(netCfg),
+		KernelArgs:      kernelArgs(),
 		Drives: []models.Drive{
 			{
 				DriveID:      firecracker.String("rootfs"),
@@ -169,10 +169,6 @@ func reconnect(ctx context.Context, id, socketPath, ip string, pid int) (*Runnin
 	}, nil
 }
 
-func kernelArgs(netCfg *network.Config) string {
-	return fmt.Sprintf(
-		"rw console=ttyS0 noapic reboot=k panic=1 pci=off nomodule "+
-			"ip=%s::%s:255.255.255.0::eth0:off",
-		netCfg.IP, netCfg.Gateway,
-	)
+func kernelArgs() string {
+	return "rw console=ttyS0 noapic reboot=k panic=1 pci=off nomodule"
 }
