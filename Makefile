@@ -22,6 +22,8 @@ smurfd:
 install: build
 	install -m 755 $(SMURF_BIN)  /usr/local/bin/smurf
 	install -m 755 $(SMURFD_BIN) /usr/local/bin/smurfd
+	install -m 644 init/smurfd.service /etc/systemd/system/smurfd.service
+	systemctl daemon-reload
 
 clean:
 	rm -rf $(BINARY_DIR)

@@ -139,9 +139,9 @@ smurf papa delete <name>
 ## Zero-downtime daemon upgrades
 
 ```bash
-pkill smurfd
+# Upgrade smurfd without downtime
 cp new-smurfd /usr/local/bin/smurfd
-SMURFD_LISTEN=0.0.0.0:7070 smurfd &
+systemctl restart smurfd
 # All running smurfs continue uninterrupted
 ```
 

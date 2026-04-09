@@ -1,0 +1,14 @@
+[Unit]
+Description=Smurf Daemon
+After=network.target
+
+[Service]
+Type=simple
+Environment=SMURFD_LISTEN=0.0.0.0:7070
+ExecStart=/usr/local/bin/smurfd
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

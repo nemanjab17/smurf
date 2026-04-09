@@ -211,19 +211,44 @@ echo "  smurf:  $(which smurf 2>/dev/null || echo 'not found')"
 
 # ── 10. Register papa + start smurfd ────────────────────────────────────────
 
-echo "==> Starting smurfd"
+echo "==> Installing smurfd systemd service"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SERVICE_SRC="${SCRIPT_DIR}/../init/smurfd.service"
+if [ -f "$SERVICE_SRC" ]; then
+  install -m 644 "$SERVICE_SRC" /etc/systemd/system/smurfd.service
+else
+  # Inline fallback when running via curl pipe (no repo checkout)
+  cat > /etc/systemd/system/smurfd.service <<'UNIT'
+[Unit]
+Description=Smurf Daemon
+After=network.target
+
+[Service]
+Type=simple
+Environment=SMURFD_LISTEN=0.0.0.0:7070
+ExecStart=/usr/local/bin/smurfd
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+fi
+
 pkill -f smurfd 2>/dev/null || true
 sleep 1
 rm -f /var/run/smurfd.sock
 
-SMURFD_LISTEN="0.0.0.0:${LISTEN_PORT}" nohup smurfd > /tmp/smurfd.log 2>&1 &
+systemctl daemon-reload
+systemctl enable --now smurfd
 sleep 2
 
-if pgrep smurfd > /dev/null; then
+if systemctl is-active --quiet smurfd; then
   echo "  smurfd running (PID $(pgrep smurfd))"
 else
   echo "  ERROR: smurfd failed to start"
-  cat /tmp/smurfd.log
+  journalctl -u smurfd --no-pager -n 20
   exit 1
 fi
 
