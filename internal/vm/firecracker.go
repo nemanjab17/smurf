@@ -21,6 +21,14 @@ func (b *FirecrackerBackend) Stop(_ context.Context, vm *RunningVM) error {
 	return vm.Stop(context.Background())
 }
 
+func (b *FirecrackerBackend) Pause(ctx context.Context, vm *RunningVM) error {
+	return vm.Pause(ctx)
+}
+
+func (b *FirecrackerBackend) Resume(ctx context.Context, vm *RunningVM) error {
+	return vm.Resume(ctx)
+}
+
 func (b *FirecrackerBackend) Snapshot(ctx context.Context, vm *RunningVM, snapshotDir string) error {
 	return createSnapshot(ctx, vm.machine, snapshotDir)
 }

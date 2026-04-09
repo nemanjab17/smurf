@@ -100,6 +100,7 @@ func NewWithDeps(cfg Config, store state.Store, netMgr network.Networker, backen
 		cfg:   cfg,
 		store: store,
 		vmMgr: mgr,
+		proxy: newSSHProxy(),
 	}
 }
 
@@ -178,6 +179,7 @@ func (s *Server) CreateSmurf(ctx context.Context, req *smurfv1.CreateSmurfReques
 	sm, err := s.vmMgr.Create(ctx, vm.CreateOpts{
 		Name:       req.Name,
 		PapaID:     req.PapaId,
+		FromSmurf:  req.FromSmurf,
 		VCPUs:      int(req.Vcpus),
 		MemoryMB:   int(req.MemoryMb),
 		DiskSizeMB: int(req.DiskSizeMb),

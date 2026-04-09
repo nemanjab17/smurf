@@ -15,6 +15,7 @@ const (
 type CreateOpts struct {
 	Name       string
 	PapaID     string
+	FromSmurf  string // fork from a running smurf instead of a papa
 	VCPUs      int
 	MemoryMB   int
 	DiskSizeMB int

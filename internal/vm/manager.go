@@ -41,6 +41,11 @@ func (m *Manager) SetSkipSSHWait(skip bool) {
 func (m *Manager) Create(ctx context.Context, opts CreateOpts) (*state.Smurf, error) {
 	opts.applyDefaults()
 
+	// Fork path: copy disk state from a running smurf and fresh-boot.
+	if opts.FromSmurf != "" {
+		return m.fork(ctx, opts)
+	}
+
 	papa, err := m.store.GetPapa(ctx, opts.PapaID)
 	if err != nil {
 		return nil, fmt.Errorf("get papa %q: %w", opts.PapaID, err)
@@ -135,6 +140,131 @@ func (m *Manager) Create(ctx context.Context, opts CreateOpts) (*state.Smurf, er
 		_ = m.store.UpdateSmurfStatus(ctx, id, state.StatusError)
 		_ = m.net.Teardown(ctx, netID)
 		return nil, fmt.Errorf("boot vm: %w", err)
+	}
+
+	sm.Status = state.StatusRunning
+	sm.SocketPath = rvm.SocketPath
+	sm.PID = rvm.PID
+	if err := m.store.UpdateSmurf(ctx, sm); err != nil {
+		return nil, fmt.Errorf("update smurf state: %w", err)
+	}
+
+	m.mu.Lock()
+	m.running[id] = rvm
+	m.mu.Unlock()
+
+	return sm, nil
+}
+
+// fork creates a new smurf by copying the disk state of a running smurf.
+// The source VM is briefly paused for a consistent rootfs copy, then resumed.
+// The new VM fresh-boots with its own IP but inherits all installed software,
+// configs, caches, and docker state from the source.
+func (m *Manager) fork(ctx context.Context, opts CreateOpts) (*state.Smurf, error) {
+	src, err := m.store.GetSmurf(ctx, opts.FromSmurf)
+	if err != nil {
+		return nil, fmt.Errorf("get source smurf %q: %w", opts.FromSmurf, err)
+	}
+	if src.Status != state.StatusRunning {
+		return nil, fmt.Errorf("source smurf %q is %s, must be running to fork", src.Name, src.Status)
+	}
+
+	papa, err := m.store.GetPapa(ctx, src.PapaID)
+	if err != nil {
+		return nil, fmt.Errorf("get papa %q: %w", src.PapaID, err)
+	}
+
+	m.mu.Lock()
+	srcVM, ok := m.running[src.ID]
+	m.mu.Unlock()
+	if !ok {
+		return nil, fmt.Errorf("source smurf %q not tracked as running", src.Name)
+	}
+
+	id := ulid.Make().String()
+	netCfg, err := m.net.Setup(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("network setup: %w", err)
+	}
+
+	smurfDir := filepath.Join(SmurfsDir, id)
+	if err := os.MkdirAll(smurfDir, 0755); err != nil {
+		_ = m.net.Teardown(ctx, id)
+		return nil, fmt.Errorf("create smurf dir: %w", err)
+	}
+
+	// Flush guest filesystem caches before pausing. Without this, recent
+	// writes may still be in the kernel page cache and won't appear in
+	// the rootfs ext4 image we copy.
+	slog.Info("syncing guest filesystem", "source", src.Name)
+	if err := syncGuest(ctx, src.IP); err != nil {
+		slog.Warn("guest sync failed, fork may miss recent writes", "err", err)
+	}
+
+	// Pause source VM for a consistent rootfs copy, then resume.
+	slog.Info("pausing source for fork", "source", src.Name)
+	if err := m.backend.Pause(ctx, srcVM); err != nil {
+		_ = m.net.Teardown(ctx, id)
+		_ = os.RemoveAll(smurfDir)
+		return nil, fmt.Errorf("pause source: %w", err)
+	}
+
+	rootfsPath := filepath.Join(smurfDir, "rootfs.ext4")
+	copyErr := copyFile(src.RootfsPath, rootfsPath)
+
+	// Always resume source, even if copy failed.
+	if err := m.backend.Resume(ctx, srcVM); err != nil {
+		slog.Error("failed to resume source after fork", "source", src.Name, "err", err)
+	}
+	slog.Info("resumed source after fork", "source", src.Name)
+
+	if copyErr != nil {
+		_ = m.net.Teardown(ctx, id)
+		_ = os.RemoveAll(smurfDir)
+		return nil, fmt.Errorf("copy rootfs: %w", copyErr)
+	}
+
+	if opts.DiskSizeMB > DefaultDiskSizeMB {
+		if err := resizeDisk(rootfsPath, opts.DiskSizeMB); err != nil {
+			_ = m.net.Teardown(ctx, id)
+			_ = os.RemoveAll(smurfDir)
+			return nil, fmt.Errorf("resize disk: %w", err)
+		}
+	}
+
+	sm := &state.Smurf{
+		ID:         id,
+		Name:       opts.Name,
+		PapaID:     papa.ID,
+		Status:     state.StatusCreating,
+		IP:         netCfg.IP,
+		VCPUs:      opts.VCPUs,
+		MemoryMB:   opts.MemoryMB,
+		DiskSizeMB: opts.DiskSizeMB,
+		RepoURL:    opts.RepoURL,
+		RepoBranch: opts.RepoBranch,
+		RootfsPath: rootfsPath,
+		CreatedAt:  time.Now(),
+	}
+
+	if err := m.store.CreateSmurf(ctx, sm); err != nil {
+		_ = m.net.Teardown(ctx, id)
+		_ = os.RemoveAll(smurfDir)
+		return nil, fmt.Errorf("persist smurf: %w", err)
+	}
+
+	if opts.SSHPubKey != "" {
+		if err := InjectSSHKey(rootfsPath, []byte(opts.SSHPubKey)); err != nil {
+			slog.Warn("ssh key injection failed", "err", err)
+		}
+	}
+
+	// Fresh-boot with the source's disk state but a new IP.
+	rvm, err := m.backend.Boot(ctx, id, papa.KernelPath, rootfsPath, opts, netCfg)
+	if err != nil {
+		_ = m.store.UpdateSmurfStatus(ctx, id, state.StatusError)
+		_ = m.net.Teardown(ctx, id)
+		return nil, fmt.Errorf("boot forked vm: %w", err)
 	}
 
 	sm.Status = state.StatusRunning

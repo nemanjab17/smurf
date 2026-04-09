@@ -348,6 +348,96 @@ func TestServer_CreateSmurf_UnknownPapa(t *testing.T) {
 	}
 }
 
+func TestServer_CreateSmurf_FromSmurf(t *testing.T) {
+	h := newHarness(t)
+	seedPapa(t, h, "base")
+
+	// Create a source smurf to fork from
+	_, err := h.client.CreateSmurf(context.Background(), &smurfv1.CreateSmurfRequest{
+		Name:   "dev",
+		PapaId: "base",
+	})
+	if err != nil {
+		t.Fatalf("create source: %v", err)
+	}
+
+	bootsBefore := len(h.backend.BootCalls())
+
+	// Fork from the running smurf
+	resp, err := h.client.CreateSmurf(context.Background(), &smurfv1.CreateSmurfRequest{
+		Name:      "dev2",
+		FromSmurf: "dev",
+	})
+	if err != nil {
+		t.Fatalf("fork smurf: %v", err)
+	}
+
+	if resp.Smurf.Name != "dev2" {
+		t.Errorf("Name: got %q want dev2", resp.Smurf.Name)
+	}
+	if resp.Smurf.Status != "running" {
+		t.Errorf("Status: got %q want running", resp.Smurf.Status)
+	}
+
+	// Source should still be running
+	src, err := h.client.GetSmurf(context.Background(), &smurfv1.GetSmurfRequest{NameOrId: "dev"})
+	if err != nil {
+		t.Fatalf("get source: %v", err)
+	}
+	if src.Smurf.Status != "running" {
+		t.Errorf("source status: got %q want running", src.Smurf.Status)
+	}
+
+	// Fork should use Pause + Resume + Boot (not Restore)
+	if len(h.backend.PauseCalls()) != 1 {
+		t.Errorf("want 1 pause call, got %d", len(h.backend.PauseCalls()))
+	}
+	if len(h.backend.ResumeCalls()) != 1 {
+		t.Errorf("want 1 resume call, got %d", len(h.backend.ResumeCalls()))
+	}
+	// One boot for source + one boot for fork
+	if len(h.backend.BootCalls()) != bootsBefore+1 {
+		t.Errorf("want 1 new boot call, got %d", len(h.backend.BootCalls())-bootsBefore)
+	}
+	// Restore should NOT have been called
+	if len(h.backend.RestoreCalls()) != 0 {
+		t.Errorf("want 0 restore calls, got %d", len(h.backend.RestoreCalls()))
+	}
+
+	// Forked smurf should have a different IP
+	if resp.Smurf.Ip == src.Smurf.Ip {
+		t.Errorf("forked smurf should have different IP, both have %s", resp.Smurf.Ip)
+	}
+}
+
+func TestServer_CreateSmurf_FromSmurf_SourceNotRunning(t *testing.T) {
+	h := newHarness(t)
+	seedPapa(t, h, "base")
+
+	_, err := h.client.CreateSmurf(context.Background(), &smurfv1.CreateSmurfRequest{
+		Name:   "dev",
+		PapaId: "base",
+	})
+	if err != nil {
+		t.Fatalf("create source: %v", err)
+	}
+
+	// Stop the source
+	_, err = h.client.StopSmurf(context.Background(), &smurfv1.StopSmurfRequest{NameOrId: "dev"})
+	if err != nil {
+		t.Fatalf("stop source: %v", err)
+	}
+
+	// Fork should fail because source is stopped
+	_, err = h.client.CreateSmurf(context.Background(), &smurfv1.CreateSmurfRequest{
+		Name:      "dev2",
+		FromSmurf: "dev",
+	})
+	if err == nil {
+		t.Fatal("expected error forking from stopped smurf, got nil")
+	}
+}
+
 func TestServer_CreateSmurf_DuplicateName(t *testing.T) {
 	h := newHarness(t)
 	seedPapa(t, h, "base")

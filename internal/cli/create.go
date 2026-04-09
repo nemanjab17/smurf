@@ -11,6 +11,7 @@ import (
 func newCreateCmd() *cobra.Command {
 	var (
 		papa       string
+		fromSmurf  string
 		vcpus      int32
 		memoryMB   int32
 		diskSizeMB int32
@@ -32,6 +33,7 @@ func newCreateCmd() *cobra.Command {
 			resp, err := client.CreateSmurf(cmd.Context(), &smurfv1.CreateSmurfRequest{
 				Name:       args[0],
 				PapaId:     papa,
+				FromSmurf:  fromSmurf,
 				Vcpus:      vcpus,
 				MemoryMb:   memoryMB,
 				DiskSizeMb: diskSizeMB,
@@ -53,6 +55,7 @@ func newCreateCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&papa, "papa", "p", "default", "Papa smurf name or ID to boot from")
+	cmd.Flags().StringVar(&fromSmurf, "from", "", "Fork from a running smurf (copies disk state)")
 	cmd.Flags().Int32Var(&vcpus, "vcpus", 0, "Number of vCPUs (default 2)")
 	cmd.Flags().Int32Var(&memoryMB, "memory", 0, "Memory in MB (default 2048)")
 	cmd.Flags().Int32Var(&diskSizeMB, "disk", 0, "Disk size in MB (default 10240)")

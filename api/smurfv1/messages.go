@@ -7,6 +7,7 @@ package smurfv1
 type CreateSmurfRequest struct {
 	Name       string `json:"name"`
 	PapaId     string `json:"papa_id"`
+	FromSmurf  string `json:"from_smurf"`  // fork from a running smurf (overrides papa_id)
 	Vcpus      int32  `json:"vcpus"`
 	MemoryMb   int32  `json:"memory_mb"`
 	DiskSizeMb int32  `json:"disk_size_mb"`

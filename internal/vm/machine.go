@@ -35,6 +35,20 @@ func (r *RunningVM) Stop(_ context.Context) error {
 	return r.machine.StopVMM()
 }
 
+func (r *RunningVM) Pause(ctx context.Context) error {
+	if r.machine == nil {
+		return nil
+	}
+	return r.machine.PauseVM(ctx)
+}
+
+func (r *RunningVM) Resume(ctx context.Context) error {
+	if r.machine == nil {
+		return nil
+	}
+	return r.machine.ResumeVM(ctx)
+}
+
 // boot starts a Firecracker VM from a kernel + rootfs (no snapshot).
 func boot(ctx context.Context, id, kernelPath, rootfsPath string, opts CreateOpts, netCfg *network.Config) (*RunningVM, error) {
 	socketPath := filepath.Join(SocketDir, id+".sock")

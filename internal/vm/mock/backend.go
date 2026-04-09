@@ -20,9 +20,13 @@ type Backend struct {
 	restores   []RestoreCall
 	BootErr    error // if set, Boot always returns this error
 	StopErr    error // if set, Stop always returns this error
+	PauseErr   error // if set, Pause always returns this error
+	ResumeErr  error // if set, Resume always returns this error
 	SnapErr    error // if set, Snapshot always returns this error
 	RestoreErr error // if set, Restore always returns this error
 	pidSeq     atomic.Int64
+	pauses     []string // IDs paused
+	resumes    []string // IDs resumed
 }
 
 type BootCall struct {
@@ -69,6 +73,42 @@ func (b *Backend) Stop(_ context.Context, rvm *vm.RunningVM) error {
 	b.stops = append(b.stops, rvm.ID)
 	b.mu.Unlock()
 	return nil
+}
+
+func (b *Backend) Pause(_ context.Context, rvm *vm.RunningVM) error {
+	if b.PauseErr != nil {
+		return b.PauseErr
+	}
+	b.mu.Lock()
+	b.pauses = append(b.pauses, rvm.ID)
+	b.mu.Unlock()
+	return nil
+}
+
+func (b *Backend) Resume(_ context.Context, rvm *vm.RunningVM) error {
+	if b.ResumeErr != nil {
+		return b.ResumeErr
+	}
+	b.mu.Lock()
+	b.resumes = append(b.resumes, rvm.ID)
+	b.mu.Unlock()
+	return nil
+}
+
+func (b *Backend) PauseCalls() []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	out := make([]string, len(b.pauses))
+	copy(out, b.pauses)
+	return out
+}
+
+func (b *Backend) ResumeCalls() []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	out := make([]string, len(b.resumes))
+	copy(out, b.resumes)
+	return out
 }
 
 func (b *Backend) BootCalls() []BootCall {
