@@ -199,16 +199,16 @@ curl -sL https://raw.githubusercontent.com/nemanjab17/smurf/main/scripts/provisi
 
 ### 3. Open the firewall
 
-If you're not using Tailscale, allow port 7070 through the DO firewall:
+If you're not using Tailscale, allow the gRPC port (7070) and the SSH proxy range (7100-7199) through the DO firewall:
 
 ```bash
 doctl compute firewall create \
   --name smurf \
-  --inbound-rules "protocol:tcp,ports:7070,address:0.0.0.0/0" \
+  --inbound-rules "protocol:tcp,ports:7070,address:0.0.0.0/0 protocol:tcp,ports:7100-7199,address:0.0.0.0/0" \
   --droplet-ids <droplet-id>
 ```
 
-Or restrict to your IP: `address:<your-ip>/32`.
+Port 7070 is the API. Ports 7100+ are per-smurf SSH proxies (`smurf console` connects through these). Restrict to your IP with `address:<your-ip>/32` — especially recommended since the API is unauthenticated.
 
 ### 4. Connect from your laptop
 
