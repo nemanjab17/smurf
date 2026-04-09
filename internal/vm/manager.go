@@ -93,25 +93,12 @@ func (m *Manager) Create(ctx context.Context, opts CreateOpts) (*state.Smurf, er
 	}
 
 	id := ulid.Make().String()
-	useSnapshot := papa.SnapshotDir != ""
+	netID := id
 
-	// For snapshot restore, recreate the TAP with the exact same name and
-	// MAC used during snapshot creation, and use the baked-in guest IP.
-	// For fresh boot, allocate a new IP and TAP via the network manager.
-	var netCfg *network.Config
-	var netID string // ID used for Setup/Teardown
-	if useSnapshot {
-		netID = "snap-" + papa.Name
-		netCfg, err = m.net.SetupFixed(ctx, netID, papa.SnapshotIP)
-		if err != nil {
-			return nil, fmt.Errorf("network setup: %w", err)
-		}
-	} else {
-		netID = id
-		netCfg, err = m.net.Setup(ctx, netID)
-		if err != nil {
-			return nil, fmt.Errorf("network setup: %w", err)
-		}
+	// Every smurf gets its own TAP and IP so multiple VMs can coexist.
+	netCfg, err := m.net.Setup(ctx, netID)
+	if err != nil {
+		return nil, fmt.Errorf("network setup: %w", err)
 	}
 
 	smurfDir := filepath.Join(SmurfsDir, id)
@@ -121,11 +108,10 @@ func (m *Manager) Create(ctx context.Context, opts CreateOpts) (*state.Smurf, er
 	}
 
 	rootfsPath := filepath.Join(smurfDir, "rootfs.ext4")
-	// For snapshot restores, copy the snapshot's rootfs (which has host keys
-	// and runtime state from the snapshot boot). For fresh boots, copy the
-	// papa's base rootfs.
+	// Prefer snapshot rootfs (has preinstalled packages from settled boot),
+	// fall back to papa's base rootfs.
 	srcRootfs := papa.RootfsPath
-	if useSnapshot {
+	if papa.SnapshotDir != "" {
 		srcRootfs = filepath.Join(papa.SnapshotDir, "rootfs.ext4")
 	}
 	if err := copyFile(srcRootfs, rootfsPath); err != nil {
@@ -171,13 +157,11 @@ func (m *Manager) Create(ctx context.Context, opts CreateOpts) (*state.Smurf, er
 		}
 	}
 
-	// Use snapshot restore if the papa has one, otherwise fresh boot
-	var rvm *RunningVM
-	if useSnapshot {
-		rvm, err = m.backend.Restore(ctx, id, papa.SnapshotDir, rootfsPath, opts, netCfg)
-	} else {
-		rvm, err = m.backend.Boot(ctx, id, papa.KernelPath, rootfsPath, opts, netCfg)
-	}
+	// Fresh boot with unique IP. Snapshot restore is not used because the
+	// guest IP is baked into the snapshot's memory state, preventing multiple
+	// VMs from the same papa. Fresh boot from the snapshot rootfs gives us
+	// all preinstalled packages with ~2-3s boot instead of sub-1s.
+	rvm, err := m.backend.Boot(ctx, id, papa.KernelPath, rootfsPath, opts, netCfg)
 	if err != nil {
 		_ = m.store.UpdateSmurfStatus(ctx, id, state.StatusError)
 		_ = m.net.Teardown(ctx, netID)

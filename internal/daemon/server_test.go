@@ -488,7 +488,8 @@ func TestServer_CreateSmurf_FromSnapshot(t *testing.T) {
 		t.Fatalf("snapshot: %v", err)
 	}
 
-	// Now create a smurf — should use Restore, not Boot
+	// Create a smurf — uses fresh boot with snapshot rootfs so each VM
+	// gets a unique IP/TAP and multiple VMs can coexist.
 	bootsBefore := len(h.backend.BootCalls())
 	resp, err := h.client.CreateSmurf(context.Background(), &smurfv1.CreateSmurfRequest{
 		Name:   "dev",
@@ -502,15 +503,10 @@ func TestServer_CreateSmurf_FromSnapshot(t *testing.T) {
 		t.Errorf("status: got %q want running", resp.Smurf.Status)
 	}
 
-	// Boot calls should NOT have increased (snapshot path uses Restore)
-	if len(h.backend.BootCalls()) != bootsBefore {
-		t.Errorf("expected no new Boot calls after snapshot restore, got %d new",
+	// Boot should be called (fresh boot, not snapshot Restore)
+	if len(h.backend.BootCalls()) != bootsBefore+1 {
+		t.Errorf("expected 1 new Boot call, got %d new",
 			len(h.backend.BootCalls())-bootsBefore)
-	}
-
-	// Restore should have been called once
-	if len(h.backend.RestoreCalls()) != 1 {
-		t.Errorf("want 1 restore call, got %d", len(h.backend.RestoreCalls()))
 	}
 }
 
