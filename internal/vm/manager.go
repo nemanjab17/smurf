@@ -120,7 +120,7 @@ func (m *Manager) Create(ctx context.Context, opts CreateOpts) (*state.Smurf, er
 		return nil, fmt.Errorf("copy rootfs: %w", err)
 	}
 
-	if opts.DiskSizeMB > DefaultDiskSizeMB {
+	if needsResize(rootfsPath, opts.DiskSizeMB) {
 		if err := resizeDisk(rootfsPath, opts.DiskSizeMB); err != nil {
 			_ = m.net.Teardown(ctx, netID)
 			_ = os.RemoveAll(smurfDir)
@@ -259,7 +259,7 @@ func (m *Manager) fork(ctx context.Context, opts CreateOpts) (*state.Smurf, erro
 		}
 	}
 
-	if opts.DiskSizeMB > DefaultDiskSizeMB {
+	if needsResize(rootfsPath, opts.DiskSizeMB) {
 		if err := resizeDisk(rootfsPath, opts.DiskSizeMB); err != nil {
 			_ = m.net.Teardown(ctx, id)
 			_ = os.RemoveAll(smurfDir)

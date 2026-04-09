@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
 	"path/filepath"
 )
@@ -51,6 +52,16 @@ func syncGuest(ctx context.Context, ip string) error {
 		return fmt.Errorf("ssh sync: %w: %s", err, out)
 	}
 	return nil
+}
+
+// needsResize returns true if the file at path is a real disk image
+// (at least 1MB) that is smaller than sizeMB megabytes.
+func needsResize(path string, sizeMB int) bool {
+	fi, err := os.Stat(path)
+	if err != nil || fi.Size() < 1024*1024 {
+		return false
+	}
+	return fi.Size() < int64(sizeMB)*1024*1024
 }
 
 // resizeDisk expands an ext4 disk image to newSizeMB megabytes.
