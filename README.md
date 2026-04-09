@@ -1,10 +1,40 @@
 # smurf
 
-Isolated cloud development environments powered by Firecracker microVMs.
+Fork running dev environments in seconds.
 
-Smurf boots Linux VMs in seconds, each with its own IP, SSH access, and Docker runtime. Think Daytona or Codespaces, but fully self-hosted on any KVM-capable Linux machine.
+Smurf runs Linux microVMs on Firecracker and lets you **fork** them — clone the full disk state of a running environment into a new one, instantly. Set up a base environment once, then fork it as many times as you want. Each fork is an isolated VM with its own IP, SSH access, and filesystem.
 
-## Architecture
+## Why forking matters
+
+Setting up a dev environment takes time: installing dependencies, seeding databases, warming caches, pulling Docker images, configuring credentials. With smurf you do that **once**. Every fork gets the full state — running containers, mounted volumes, populated databases, SSH keys, dotfiles, everything. The fork boots and it's ready to use.
+
+```bash
+# Set up once
+smurf create base
+smurf console base
+# install deps, seed the DB, docker-compose up, add credentials, configure tools
+# everything is running exactly how you want it
+
+# Fork instantly — full disk state is copied, not rebuilt
+smurf create feature-a --from base
+smurf create feature-b --from base
+smurf create experiment --from base
+# each fork boots with your entire setup already in place
+```
+
+Each fork is a full, isolated copy. Changes in one don't affect the others. Break something? Delete it and fork again — you're back to a clean, fully configured environment in seconds.
+
+```
+NAME         STATUS    IP           SSH     VCPUS   MEMORY   CREATED
+base         running   10.0.100.2   :7100   2       2048MB   2026-04-09T09:15:00Z
+feature-a    running   10.0.100.3   :7101   2       2048MB   2026-04-09T09:15:04Z
+feature-b    running   10.0.100.4   :7102   2       2048MB   2026-04-09T09:15:06Z
+experiment   running   10.0.100.5   :7103   2       2048MB   2026-04-09T09:15:08Z
+```
+
+Forking pauses the source VM just long enough to copy the rootfs (CoW reflink when the filesystem supports it), then resumes it. The source keeps running uninterrupted.
+
+## How it works
 
 ```
 your laptop                         KVM host
@@ -13,36 +43,29 @@ your laptop                         KVM host
 +-----------+     (port 7070)       |   ├── VM manager (Firecracker)    |
                                     |   ├── Network manager (bridge+TAP)|
                                     |   ├── SSH proxy (per-smurf ports) |
-                                    |   ├── State store (SQLite)        |
-                                    |   └── SSH key manager             |
+                                    |   └── State store (SQLite)        |
                                     +-----------------------------------+
                                          │          │          │
                                       smurf-1    smurf-2    smurf-N
                                       10.0.100.2 10.0.100.3  ...
 ```
 
-**Concepts:**
-- **Smurf** -- a dev environment (Firecracker microVM with its own IP, TAP, and SSH proxy)
-- **Papa Smurf** -- a base image (kernel + rootfs) that smurfs are created from
-- **Fork** -- create a new smurf by copying disk state from a running one
+Each smurf is a Firecracker microVM with:
+- A unique IP on a shared bridge network (`10.0.100.0/24`)
+- A dedicated TAP device and SSH proxy port
+- Its own rootfs (ext4 image with injected SSH keys and network config)
 
-**Key properties:**
-- Each smurf gets a unique IP and TAP device -- multiple VMs coexist safely
-- VMs run as detached processes -- smurfd can restart/upgrade without affecting running smurfs
-- On restart, smurfd recovers all VM state, network config, and SSH proxies from SQLite
-- Guest networking via systemd-networkd (static IP injected into rootfs before boot)
+VMs run as detached processes — smurfd can restart or upgrade without killing them. On startup it recovers all state from SQLite: reconnects to running VMs, restores TAP devices, re-establishes SSH proxies.
 
 ## Quick start
 
 ### 1. Provision the host
 
 ```bash
-# One-command setup: installs Firecracker, CNI, builds Ubuntu rootfs,
-# registers "default" papa, and starts smurfd.
 curl -sL https://raw.githubusercontent.com/nemanjab17/smurf/main/scripts/provision-host.sh | sudo bash
 ```
 
-Or step by step:
+This installs Firecracker, builds an Ubuntu rootfs, registers a default papa, and starts smurfd. Or step by step:
 
 ```bash
 sudo bash scripts/setup-host.sh       # install Firecracker + deps
@@ -67,72 +90,55 @@ chmod +x smurf && sudo mv smurf /usr/local/bin/
 export SMURF_HOST=<daemon-ip>:7070   # add to ~/.zshrc or ~/.bashrc
 ```
 
-### 4. Register a papa and create smurfs
+### 4. Create and fork
 
 ```bash
-# Register base image
+# Register base image and snapshot for fast boot
 smurf papa register default \
   --kernel /var/lib/smurf/papas/base/vmlinux \
   --rootfs /var/lib/smurf/papas/base/rootfs.ext4
-
-# Snapshot for faster boot (one-time, ~10s)
 smurf papa snapshot default
 
-# Create environments
+# Create a base environment
 smurf create dev
-smurf create staging --vcpus 4 --memory 4096
+
+# Set it up however you want
+smurf console dev
+
+# Fork it
+smurf create dev-copy --from dev
 ```
 
 ## Usage
 
-### Create and manage smurfs
-
 ```bash
-smurf create myenv                       # create from default papa
-smurf create myenv --papa base           # specify papa
+# Create
+smurf create myenv                          # from default papa
+smurf create myenv --papa custom            # from specific papa
 smurf create myenv --vcpus 4 --memory 4096 --disk 20480
-smurf create clone --from myenv          # fork a running smurf (copies disk state)
-smurf list                               # list all smurfs
-smurf stop myenv                         # stop a smurf
-smurf delete myenv                       # delete (prompts for confirmation)
-smurf delete myenv -f                    # delete without confirmation
-```
+smurf create clone --from myenv             # fork a running smurf
 
-```
-NAME      STATUS    IP           SSH     VCPUS   MEMORY   CREATED
-myenv     running   10.0.100.3   :7100   2       2048MB   2026-04-09T09:28:39Z
-clone     running   10.0.100.4   :7101   2       2048MB   2026-04-09T09:28:41Z
-staging   stopped   10.0.100.5   -       4       4096MB   2026-04-09T09:30:12Z
-```
+# Manage
+smurf list                                  # list all smurfs
+smurf list --status running                 # filter by status
+smurf stop myenv
+smurf delete myenv                          # prompts for confirmation
+smurf delete myenv -f                       # skip confirmation
 
-### SSH into a smurf
+# SSH
+smurf console myenv                         # zero-config SSH
+smurf console myenv -u root                 # SSH as root
 
-```bash
-smurf console myenv                      # zero-config SSH (keys managed by smurfd)
-smurf console myenv -u root              # SSH as root
-```
-
-The CLI fetches the SSH key and proxy port from the daemon automatically. No manual key management needed.
-
-### Manage papa smurfs
-
-```bash
+# Papa (base images)
 smurf papa list
 smurf papa register <name> --kernel <path> --rootfs <path>
-smurf papa snapshot <name>               # boot, settle, snapshot (~10s)
+smurf papa snapshot <name>                  # boot, settle, snapshot (~10s)
 smurf papa delete <name>
 ```
 
-## Daemon resilience
-
-smurfd can be restarted, upgraded, or rebuilt without affecting running smurfs:
-
-- Firecracker VMs run as detached processes (own session, no signal forwarding)
-- On startup, smurfd recovers from SQLite: reconnects to running VMs, restores TAP devices, re-establishes SSH proxies
-- Network state (TAPs, IPs) is preserved across restarts -- only orphaned TAPs are cleaned
+## Zero-downtime daemon upgrades
 
 ```bash
-# Upgrade smurfd without downtime
 pkill smurfd
 cp new-smurfd /usr/local/bin/smurfd
 SMURFD_LISTEN=0.0.0.0:7070 smurfd &
@@ -150,32 +156,98 @@ SMURFD_LISTEN=0.0.0.0:7070 smurfd &
 
 ## Security
 
-The gRPC API between the CLI and daemon is **unauthenticated and unencrypted**. The `GetSSHConfig` RPC returns SSH private keys in plaintext. Do not expose port 7070 to untrusted networks.
+The gRPC API is **unauthenticated and unencrypted**. Do not expose port 7070 to untrusted networks. Use [Tailscale](https://tailscale.com) or a VPN to secure the connection. The `provision-host.sh` script supports `--tailscale-key` for easy setup.
 
-**Recommended:** Use [Tailscale](https://tailscale.com) or a VPN to secure the connection between your laptop and the daemon host. The `provision-host.sh` script supports `--tailscale-key` for easy setup.
+## Running on DigitalOcean
+
+DigitalOcean droplets with KVM support work out of the box. You need a **dedicated CPU** or **CPU-optimized** droplet — regular shared-CPU droplets don't expose `/dev/kvm`.
+
+### 1. Create the droplet
+
+- **Image:** Ubuntu 24.04
+- **Plan:** Dedicated CPU (e.g. `c-4` — 4 vCPUs, 8 GB, $42/mo) or CPU-Optimized
+- **Region:** any
+- **Auth:** SSH key
+
+From the DO CLI:
+
+```bash
+doctl compute droplet create smurf-host \
+  --image ubuntu-24-04-x64 \
+  --size c-4 \
+  --region nyc1 \
+  --ssh-keys <your-key-id>
+```
+
+### 2. Provision
+
+SSH into the droplet and run the one-liner:
+
+```bash
+ssh root@<droplet-ip>
+curl -sL https://raw.githubusercontent.com/nemanjab17/smurf/main/scripts/provision-host.sh | sudo bash
+```
+
+This installs Firecracker, builds the Ubuntu rootfs, registers the default papa, and starts smurfd listening on port 7070.
+
+To secure the connection with Tailscale instead of exposing port 7070:
+
+```bash
+curl -sL https://raw.githubusercontent.com/nemanjab17/smurf/main/scripts/provision-host.sh \
+  | sudo bash -s -- --tailscale-key tskey-auth-xxxxx
+```
+
+### 3. Open the firewall
+
+If you're not using Tailscale, allow port 7070 through the DO firewall:
+
+```bash
+doctl compute firewall create \
+  --name smurf \
+  --inbound-rules "protocol:tcp,ports:7070,address:0.0.0.0/0" \
+  --droplet-ids <droplet-id>
+```
+
+Or restrict to your IP: `address:<your-ip>/32`.
+
+### 4. Connect from your laptop
+
+```bash
+# If using Tailscale
+export SMURF_HOST=$(tailscale ip -4):7070
+
+# If using public IP
+export SMURF_HOST=<droplet-ip>:7070
+
+smurf create dev
+smurf console dev
+```
+
+### Recommended droplet sizes
+
+| Droplet | vCPUs | RAM | Smurfs (2 vCPU / 2 GB each) |
+|---------|-------|-----|------------------------------|
+| `c-4` | 4 | 8 GB | 2-3 |
+| `c-8` | 8 | 16 GB | 5-6 |
+| `c-16` | 16 | 32 GB | 12-14 |
+| `c-32` | 32 | 64 GB | 28-30 |
+
+Leave ~2 GB RAM and 1 vCPU for the host OS and smurfd.
 
 ## Requirements
 
-**Daemon host:**
-- Linux with `/dev/kvm` (bare metal or nested virt)
-- Firecracker v1.7+
-- Root access (for TAP/bridge networking)
-- Kernel: 6.1 LTS vmlinux (downloaded automatically by provision script)
+**Daemon host:** Linux with `/dev/kvm`, Firecracker v1.7+, root access, kernel 6.1+ LTS vmlinux.
 
-**CLI:**
-- macOS or Linux (any architecture)
+**CLI:** macOS or Linux.
 
 ## Building from source
 
 ```bash
-make build          # builds bin/smurf + bin/smurfd
-make test           # runs all tests with race detector
-make install        # installs to /usr/local/bin
-```
+make build          # bin/smurf + bin/smurfd
+make test           # all tests with race detector
+make install        # /usr/local/bin
 
-Cross-compile:
-
-```bash
-GOOS=darwin GOARCH=arm64 make smurf    # macOS Apple Silicon CLI
-GOOS=linux GOARCH=amd64 make smurfd    # Linux x86_64 daemon
+# Cross-compile
+GOOS=darwin GOARCH=arm64 make smurf
+GOOS=linux GOARCH=amd64 make smurfd
 ```
