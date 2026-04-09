@@ -335,6 +335,11 @@ func (m *Manager) Start(ctx context.Context, nameOrID string, sshPubKey string) 
 		return nil, fmt.Errorf("get papa %q: %w", sm.PapaID, err)
 	}
 
+	// Clean up stale resources from a previous run (e.g. after a power
+	// cycle where Stop never ran). Ignore errors — they may not exist.
+	_ = m.net.Teardown(ctx, sm.ID)
+	_ = os.Remove(filepath.Join(SocketDir, sm.ID+".sock"))
+
 	netCfg, err := m.net.Setup(ctx, sm.ID)
 	if err != nil {
 		return nil, fmt.Errorf("network setup: %w", err)
