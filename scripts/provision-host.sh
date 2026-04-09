@@ -169,6 +169,16 @@ FSTAB
   chroot "$MOUNT_DIR" systemctl enable ssh haveged 2>/dev/null || true
   mkdir -p "$MOUNT_DIR/root/.ssh"
   chmod 700 "$MOUNT_DIR/root/.ssh"
+
+  # Create default smurf user with sudo access
+  chroot "$MOUNT_DIR" useradd -m -s /bin/bash -G sudo smurf
+  chroot "$MOUNT_DIR" passwd -d smurf
+  echo "smurf ALL=(ALL) NOPASSWD:ALL" > "$MOUNT_DIR/etc/sudoers.d/smurf"
+  chmod 440 "$MOUNT_DIR/etc/sudoers.d/smurf"
+  mkdir -p "$MOUNT_DIR/home/smurf/.ssh"
+  chmod 700 "$MOUNT_DIR/home/smurf/.ssh"
+  chroot "$MOUNT_DIR" chown -R smurf:smurf /home/smurf/.ssh
+
   chroot "$MOUNT_DIR" locale-gen en_US.UTF-8 2>/dev/null || true
 
   umount "$MOUNT_DIR"

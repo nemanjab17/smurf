@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"syscall"
 
 	firecracker "github.com/firecracker-microvm/firecracker-go-sdk"
 	"github.com/firecracker-microvm/firecracker-go-sdk/client/models"
@@ -12,6 +14,18 @@ import (
 
 	"github.com/nemanjab17/smurf/internal/network"
 )
+
+// detachedCmd builds a Firecracker exec.Cmd that runs in its own session,
+// so the VM process survives smurfd restarts.
+func detachedCmd(ctx context.Context, cfg firecracker.Config) *exec.Cmd {
+	cmd := firecracker.VMCommandBuilder{}.
+		WithBin("firecracker").
+		WithSocketPath(cfg.SocketPath).
+		AddArgs("--no-seccomp").
+		Build(ctx)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	return cmd
+}
 
 type RunningVM struct {
 	ID         string
@@ -90,6 +104,8 @@ func boot(ctx context.Context, id, kernelPath, rootfsPath string, opts CreateOpt
 			VcpuCount:  firecracker.Int64(int64(opts.VCPUs)),
 			MemSizeMib: firecracker.Int64(int64(opts.MemoryMB)),
 		},
+		// Don't forward signals — VMs must survive smurfd restarts.
+		ForwardSignals: []os.Signal{},
 	}
 
 	// Use a background context for the VM lifecycle — the VM must outlive
@@ -97,6 +113,7 @@ func boot(ctx context.Context, id, kernelPath, rootfsPath string, opts CreateOpt
 	vmCtx := context.Background()
 
 	machine, err := firecracker.NewMachine(vmCtx, cfg,
+		firecracker.WithProcessRunner(detachedCmd(vmCtx, cfg)),
 		firecracker.WithLogger(logrus.NewEntry(logger)),
 	)
 	if err != nil {
@@ -119,6 +136,36 @@ func boot(ctx context.Context, id, kernelPath, rootfsPath string, opts CreateOpt
 		PID:        pid,
 		machine:    machine,
 		netCfg:     netCfg,
+	}, nil
+}
+
+// reconnect attaches to an already-running Firecracker VM via its API socket.
+// Returns a RunningVM with a live machine handle for Pause/Resume/Stop.
+func reconnect(ctx context.Context, id, socketPath, ip string, pid int) (*RunningVM, error) {
+	if _, err := os.Stat(socketPath); err != nil {
+		return nil, fmt.Errorf("socket not found: %w", err)
+	}
+
+	cfg := firecracker.Config{
+		SocketPath: socketPath,
+	}
+
+	logger := logrus.New()
+	logger.SetOutput(os.Stderr)
+
+	machine, err := firecracker.NewMachine(ctx, cfg,
+		firecracker.WithLogger(logrus.NewEntry(logger)),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("reconnect machine: %w", err)
+	}
+
+	return &RunningVM{
+		ID:         id,
+		SocketPath: socketPath,
+		IP:         ip,
+		PID:        pid,
+		machine:    machine,
 	}, nil
 }
 

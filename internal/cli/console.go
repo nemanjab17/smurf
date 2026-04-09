@@ -85,7 +85,7 @@ func newConsoleCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&user, "user", "u", "", "SSH user (default: root)")
+	cmd.Flags().StringVarP(&user, "user", "u", "", "SSH user (default: smurf)")
 	return cmd
 }
 

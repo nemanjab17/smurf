@@ -63,6 +63,15 @@ chroot "$MOUNT_DIR" ssh-keygen -A
 # Set root password to locked (key-only access)
 chroot "$MOUNT_DIR" passwd -l root
 
+# Create default smurf user with sudo + docker access
+chroot "$MOUNT_DIR" useradd -m -s /bin/bash -G sudo smurf
+chroot "$MOUNT_DIR" passwd -d smurf
+echo "smurf ALL=(ALL) NOPASSWD:ALL" > "$MOUNT_DIR/etc/sudoers.d/smurf"
+chmod 440 "$MOUNT_DIR/etc/sudoers.d/smurf"
+mkdir -p "$MOUNT_DIR/home/smurf/.ssh"
+chmod 700 "$MOUNT_DIR/home/smurf/.ssh"
+chroot "$MOUNT_DIR" chown -R smurf:smurf /home/smurf/.ssh
+
 # Serial console for Firecracker
 chroot "$MOUNT_DIR" systemctl enable serial-getty@ttyS0.service
 

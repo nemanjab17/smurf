@@ -56,9 +56,8 @@ func EnsureSSHKeypair(dir string) ([]byte, error) {
 	return pubBytes, nil
 }
 
-// InjectSSHKey writes the public key into /root/.ssh/authorized_keys inside
-// an ext4 rootfs image by loop-mounting it.
-func InjectSSHKey(rootfsPath string, pubKey []byte) error {
+// PrepareRootfs loop-mounts the rootfs and injects SSH keys and the hostname.
+func PrepareRootfs(rootfsPath string, pubKey []byte, hostname string) error {
 	mountDir, err := os.MkdirTemp("", "smurf-mount-*")
 	if err != nil {
 		return fmt.Errorf("create mount dir: %w", err)
@@ -70,13 +69,36 @@ func InjectSSHKey(rootfsPath string, pubKey []byte) error {
 	}
 	defer exec.Command("umount", mountDir).Run()
 
-	sshDir := filepath.Join(mountDir, "root", ".ssh")
-	if err := os.MkdirAll(sshDir, 0700); err != nil {
-		return fmt.Errorf("create .ssh dir: %w", err)
+	// Inject SSH key into root
+	rootSSH := filepath.Join(mountDir, "root", ".ssh")
+	if err := os.MkdirAll(rootSSH, 0700); err != nil {
+		return fmt.Errorf("create root .ssh dir: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(rootSSH, "authorized_keys"), pubKey, 0600); err != nil {
+		return fmt.Errorf("write root authorized_keys: %w", err)
 	}
 
-	if err := os.WriteFile(filepath.Join(sshDir, "authorized_keys"), pubKey, 0600); err != nil {
-		return fmt.Errorf("write authorized_keys: %w", err)
+	// Inject SSH key into smurf user
+	smurfSSH := filepath.Join(mountDir, "home", "smurf", ".ssh")
+	if err := os.MkdirAll(smurfSSH, 0700); err != nil {
+		return fmt.Errorf("create smurf .ssh dir: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(smurfSSH, "authorized_keys"), pubKey, 0600); err != nil {
+		return fmt.Errorf("write smurf authorized_keys: %w", err)
+	}
+	// smurf user is uid/gid 1000
+	os.Chown(smurfSSH, 1000, 1000)
+	os.Chown(filepath.Join(smurfSSH, "authorized_keys"), 1000, 1000)
+
+	// Set hostname
+	if hostname != "" {
+		if err := os.WriteFile(filepath.Join(mountDir, "etc", "hostname"), []byte(hostname+"\n"), 0644); err != nil {
+			return fmt.Errorf("write hostname: %w", err)
+		}
+		hostsContent := fmt.Sprintf("127.0.0.1 localhost %s\n", hostname)
+		if err := os.WriteFile(filepath.Join(mountDir, "etc", "hosts"), []byte(hostsContent), 0644); err != nil {
+			return fmt.Errorf("write hosts: %w", err)
+		}
 	}
 
 	return nil

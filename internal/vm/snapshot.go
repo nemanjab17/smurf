@@ -57,7 +57,8 @@ func restoreFromSnapshot(ctx context.Context, id, snapshotDir, rootfsPath string
 	// rejects PUT operations after snapshot load. The snapshot carries its own
 	// device bindings. We PATCH the rootfs drive path after load, then resume.
 	cfg := firecracker.Config{
-		SocketPath: socketPath,
+		SocketPath:     socketPath,
+		ForwardSignals: []os.Signal{},
 	}
 
 	// Use a background context for the VM lifecycle — the VM must outlive
@@ -65,6 +66,7 @@ func restoreFromSnapshot(ctx context.Context, id, snapshotDir, rootfsPath string
 	vmCtx := context.Background()
 
 	machine, err := firecracker.NewMachine(vmCtx, cfg,
+		firecracker.WithProcessRunner(detachedCmd(vmCtx, cfg)),
 		firecracker.WithLogger(logrus.NewEntry(logger)),
 		firecracker.WithSnapshot(memPath, vmstatePath),
 	)
