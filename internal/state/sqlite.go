@@ -35,6 +35,7 @@ func (s *SQLiteStore) migrate() error {
 			papa_id     TEXT NOT NULL,
 			status      TEXT NOT NULL,
 			ip          TEXT NOT NULL DEFAULT '',
+			net_id      TEXT NOT NULL DEFAULT '',
 			vcpus       INTEGER NOT NULL DEFAULT 2,
 			memory_mb   INTEGER NOT NULL DEFAULT 2048,
 			disk_size_mb INTEGER NOT NULL DEFAULT 10240,
@@ -59,15 +60,21 @@ func (s *SQLiteStore) migrate() error {
 			updated_at   DATETIME NOT NULL
 		);
 	`)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Add net_id column to existing databases.
+	s.db.Exec(`ALTER TABLE smurfs ADD COLUMN net_id TEXT NOT NULL DEFAULT ''`)
+	return nil
 }
 
 func (s *SQLiteStore) CreateSmurf(ctx context.Context, sm *Smurf) error {
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO smurfs (id, name, papa_id, status, ip, vcpus, memory_mb, disk_size_mb,
+		INSERT INTO smurfs (id, name, papa_id, status, ip, net_id, vcpus, memory_mb, disk_size_mb,
 		                    repo_url, repo_branch, socket_path, pid, rootfs_path, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		sm.ID, sm.Name, sm.PapaID, sm.Status, sm.IP,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		sm.ID, sm.Name, sm.PapaID, sm.Status, sm.IP, sm.NetID,
 		sm.VCPUs, sm.MemoryMB, sm.DiskSizeMB,
 		sm.RepoURL, sm.RepoBranch, sm.SocketPath, sm.PID, sm.RootfsPath,
 		sm.CreatedAt,
@@ -83,14 +90,14 @@ func (s *SQLiteStore) CreateSmurf(ctx context.Context, sm *Smurf) error {
 
 func (s *SQLiteStore) GetSmurf(ctx context.Context, nameOrID string) (*Smurf, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, name, papa_id, status, ip, vcpus, memory_mb, disk_size_mb,
+		SELECT id, name, papa_id, status, ip, net_id, vcpus, memory_mb, disk_size_mb,
 		       repo_url, repo_branch, socket_path, pid, rootfs_path, created_at, stopped_at
 		FROM smurfs WHERE id = ? OR name = ?`, nameOrID, nameOrID)
 	return scanSmurf(row)
 }
 
 func (s *SQLiteStore) ListSmurfs(ctx context.Context, filter SmurfFilter) ([]Smurf, error) {
-	query := `SELECT id, name, papa_id, status, ip, vcpus, memory_mb, disk_size_mb,
+	query := `SELECT id, name, papa_id, status, ip, net_id, vcpus, memory_mb, disk_size_mb,
 	                 repo_url, repo_branch, socket_path, pid, rootfs_path, created_at, stopped_at
 	          FROM smurfs`
 	args := []any{}
@@ -119,9 +126,9 @@ func (s *SQLiteStore) ListSmurfs(ctx context.Context, filter SmurfFilter) ([]Smu
 
 func (s *SQLiteStore) UpdateSmurf(ctx context.Context, sm *Smurf) error {
 	_, err := s.db.ExecContext(ctx, `
-		UPDATE smurfs SET status=?, ip=?, socket_path=?, pid=?, rootfs_path=?, stopped_at=?
+		UPDATE smurfs SET status=?, ip=?, net_id=?, socket_path=?, pid=?, rootfs_path=?, stopped_at=?
 		WHERE id=?`,
-		sm.Status, sm.IP, sm.SocketPath, sm.PID, sm.RootfsPath, sm.StoppedAt, sm.ID,
+		sm.Status, sm.IP, sm.NetID, sm.SocketPath, sm.PID, sm.RootfsPath, sm.StoppedAt, sm.ID,
 	)
 	return err
 }
@@ -206,7 +213,7 @@ type scanner interface {
 func scanSmurf(row scanner) (*Smurf, error) {
 	var sm Smurf
 	err := row.Scan(
-		&sm.ID, &sm.Name, &sm.PapaID, &sm.Status, &sm.IP,
+		&sm.ID, &sm.Name, &sm.PapaID, &sm.Status, &sm.IP, &sm.NetID,
 		&sm.VCPUs, &sm.MemoryMB, &sm.DiskSizeMB,
 		&sm.RepoURL, &sm.RepoBranch, &sm.SocketPath, &sm.PID, &sm.RootfsPath,
 		&sm.CreatedAt, &sm.StoppedAt,

@@ -17,6 +17,7 @@ type Smurf struct {
 	PapaID     string      `db:"papa_id"`
 	Status     SmurfStatus `db:"status"`
 	IP         string      `db:"ip"`
+	NetID      string      `db:"net_id"` // ID used with network manager (may differ from ID for snapshot restores)
 	VCPUs      int         `db:"vcpus"`
 	MemoryMB   int         `db:"memory_mb"`
 	DiskSizeMB int         `db:"disk_size_mb"`

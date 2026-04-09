@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/oklog/ulid/v2"
@@ -36,6 +37,46 @@ func NewManager(store state.Store, net network.Networker, backend Backend) *Mana
 // SetSkipSSHWait disables SSH readiness checks (for testing with mock backends).
 func (m *Manager) SetSkipSSHWait(skip bool) {
 	m.skipSSHWait = skip
+}
+
+// RecoverRunning reconnects to Firecracker VMs that are marked as running in
+// the database. This restores the in-memory running map after a smurfd restart
+// so that fork, stop, and other operations work on pre-existing VMs.
+func (m *Manager) RecoverRunning(ctx context.Context) {
+	running := state.StatusRunning
+	smurfs, err := m.store.ListSmurfs(ctx, state.SmurfFilter{Status: &running})
+	if err != nil {
+		slog.Warn("failed to list running smurfs for recovery", "err", err)
+		return
+	}
+
+	for _, sm := range smurfs {
+		// Check if the Firecracker process is still alive
+		if sm.PID <= 0 {
+			continue
+		}
+		proc, err := os.FindProcess(sm.PID)
+		if err != nil {
+			continue
+		}
+		// Signal 0 checks if the process exists without killing it
+		if proc.Signal(syscall.Signal(0)) != nil {
+			slog.Warn("vm process dead, marking stopped", "smurf", sm.Name, "pid", sm.PID)
+			_ = m.store.UpdateSmurfStatus(ctx, sm.ID, state.StatusStopped)
+			continue
+		}
+
+		rvm, err := reconnect(ctx, sm.ID, sm.SocketPath, sm.IP, sm.PID)
+		if err != nil {
+			slog.Warn("failed to reconnect to vm", "smurf", sm.Name, "err", err)
+			continue
+		}
+
+		m.mu.Lock()
+		m.running[sm.ID] = rvm
+		m.mu.Unlock()
+		slog.Info("recovered vm", "smurf", sm.Name, "pid", sm.PID)
+	}
 }
 
 func (m *Manager) Create(ctx context.Context, opts CreateOpts) (*state.Smurf, error) {
@@ -107,6 +148,7 @@ func (m *Manager) Create(ctx context.Context, opts CreateOpts) (*state.Smurf, er
 		PapaID:     papa.ID,
 		Status:     state.StatusCreating,
 		IP:         netCfg.IP,
+		NetID:      netID,
 		VCPUs:      opts.VCPUs,
 		MemoryMB:   opts.MemoryMB,
 		DiskSizeMB: opts.DiskSizeMB,
@@ -122,10 +164,10 @@ func (m *Manager) Create(ctx context.Context, opts CreateOpts) (*state.Smurf, er
 		return nil, fmt.Errorf("persist smurf: %w", err)
 	}
 
-	// Inject SSH public key into the rootfs before boot
+	// Prepare rootfs: inject SSH key and set hostname
 	if opts.SSHPubKey != "" {
-		if err := InjectSSHKey(rootfsPath, []byte(opts.SSHPubKey)); err != nil {
-			slog.Warn("ssh key injection failed", "err", err)
+		if err := PrepareRootfs(rootfsPath, []byte(opts.SSHPubKey), opts.Name); err != nil {
+			slog.Warn("rootfs preparation failed", "err", err)
 		}
 	}
 
@@ -238,6 +280,7 @@ func (m *Manager) fork(ctx context.Context, opts CreateOpts) (*state.Smurf, erro
 		PapaID:     papa.ID,
 		Status:     state.StatusCreating,
 		IP:         netCfg.IP,
+		NetID:      id,
 		VCPUs:      opts.VCPUs,
 		MemoryMB:   opts.MemoryMB,
 		DiskSizeMB: opts.DiskSizeMB,
@@ -254,8 +297,8 @@ func (m *Manager) fork(ctx context.Context, opts CreateOpts) (*state.Smurf, erro
 	}
 
 	if opts.SSHPubKey != "" {
-		if err := InjectSSHKey(rootfsPath, []byte(opts.SSHPubKey)); err != nil {
-			slog.Warn("ssh key injection failed", "err", err)
+		if err := PrepareRootfs(rootfsPath, []byte(opts.SSHPubKey), opts.Name); err != nil {
+			slog.Warn("rootfs preparation failed", "err", err)
 		}
 	}
 
@@ -300,8 +343,12 @@ func (m *Manager) Stop(ctx context.Context, nameOrID string) error {
 		m.mu.Unlock()
 	}
 
-	if err := m.net.Teardown(ctx, sm.ID); err != nil {
-		fmt.Printf("warn: teardown network for %s: %v\n", sm.ID, err)
+	netID := sm.NetID
+	if netID == "" {
+		netID = sm.ID // fallback for smurfs created before NetID was persisted
+	}
+	if err := m.net.Teardown(ctx, netID); err != nil {
+		slog.Warn("teardown network failed", "smurf", sm.Name, "netID", netID, "err", err)
 	}
 
 	return m.store.UpdateSmurfStatus(ctx, sm.ID, state.StatusStopped)

@@ -16,7 +16,6 @@ import (
 	"github.com/nemanjab17/smurf/internal/network"
 	"github.com/nemanjab17/smurf/internal/state"
 	"github.com/nemanjab17/smurf/internal/vm"
-	// network is still used by NewWithDeps signature
 )
 
 type Server struct {
@@ -65,10 +64,46 @@ func New(cfg Config) (*Server, error) {
 		proxy:     newSSHProxy(),
 	}
 
-	// Recover proxy ports for smurfs that are still running
+	// Recover network state before reconnecting to VMs — this prevents
+	// cleanStaleTaps from destroying TAPs that running VMs still need,
+	// and advances the IP allocator past all in-use addresses.
+	srv.recoverNetwork(netMgr)
+
+	// Reconnect to running Firecracker VMs and recover proxy ports
+	vmMgr.RecoverRunning(context.Background())
 	srv.recoverProxies()
 
 	return srv, nil
+}
+
+// recoverNetwork tells the network manager about VMs that are still running
+// so it can preserve their TAPs and skip their IPs during allocation.
+func (s *Server) recoverNetwork(netMgr network.Networker) {
+	ctx := context.Background()
+	running := state.StatusRunning
+	smurfs, err := s.store.ListSmurfs(ctx, state.SmurfFilter{Status: &running})
+	if err != nil {
+		slog.Warn("failed to list running smurfs for network recovery", "err", err)
+		return
+	}
+	allocations := make([]network.Allocation, 0, len(smurfs))
+	for _, sm := range smurfs {
+		netID := sm.NetID
+		if netID == "" {
+			netID = sm.ID
+		}
+		allocations = append(allocations, network.Allocation{
+			SmurfID: netID,
+			IP:      sm.IP,
+		})
+	}
+	if len(allocations) > 0 {
+		if err := netMgr.Recover(ctx, allocations); err != nil {
+			slog.Warn("network recovery failed", "err", err)
+		} else {
+			slog.Info("recovered network state", "vms", len(allocations))
+		}
+	}
 }
 
 // recoverProxies restarts SSH proxy listeners for smurfs marked as running
@@ -323,7 +358,7 @@ func (s *Server) GetSSHConfig(ctx context.Context, req *smurfv1.GetSSHConfigRequ
 
 	return &smurfv1.SSHConfigResponse{
 		Ip:         sm.IP,
-		User:       "root",
+		User:       "smurf",
 		PrivateKey: string(privKey),
 		ProxyPort:  int32(port),
 	}, nil

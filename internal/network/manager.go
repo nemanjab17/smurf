@@ -24,9 +24,6 @@ type Manager struct {
 }
 
 func NewManager() (*Manager, error) {
-	// Clean up stale TAPs from previous crashes
-	cleanStaleTaps()
-
 	if err := EnsureBridge(BridgeName, BridgeCIDR); err != nil {
 		return nil, fmt.Errorf("ensure bridge: %w", err)
 	}
@@ -38,23 +35,57 @@ func NewManager() (*Manager, error) {
 	}, nil
 }
 
-// cleanStaleTaps removes any leftover tap-* devices from previous runs.
-func cleanStaleTaps() {
+// cleanStaleTapsExcept removes tap-* devices that are NOT in the keep set.
+func cleanStaleTapsExcept(keep map[string]bool) {
 	out, err := exec.Command("ip", "-o", "link", "show").Output()
 	if err != nil {
 		return
 	}
 	for _, line := range strings.Split(string(out), "\n") {
-		// Extract device name: "12: tap-01KNPR: <...>"
 		parts := strings.Fields(line)
 		if len(parts) < 2 {
 			continue
 		}
 		name := strings.TrimSuffix(parts[1], ":")
-		if strings.HasPrefix(name, "tap-") {
+		if strings.HasPrefix(name, "tap-") && !keep[name] {
 			_ = DeleteTap(name)
 		}
 	}
+}
+
+// Recover restores network state after a daemon restart. It registers
+// allocations from running VMs, verifies their TAPs still exist (recreating
+// if needed), advances the IP counter past all in-use addresses, and cleans
+// only TAPs that don't belong to any recovered VM.
+func (m *Manager) Recover(_ context.Context, allocations []Allocation) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	liveTaps := make(map[string]bool)
+	for _, a := range allocations {
+		m.allocated[a.SmurfID] = a.IP
+		tap := tapName(a.SmurfID)
+		liveTaps[tap] = true
+
+		// Advance nextIP past any recovered address.
+		ip := net.ParseIP(a.IP).To4()
+		if ip != nil {
+			addr := binary.BigEndian.Uint32(ip) + 1
+			if addr > m.nextIP {
+				m.nextIP = addr
+			}
+		}
+
+		// Ensure the TAP still exists and is attached to the bridge.
+		if err := exec.Command("ip", "link", "show", tap).Run(); err != nil {
+			// TAP gone — recreate it.
+			_ = CreateTap(tap, BridgeName)
+		}
+	}
+
+	// Clean TAPs that aren't owned by any recovered VM.
+	cleanStaleTapsExcept(liveTaps)
+	return nil
 }
 
 func (m *Manager) Setup(ctx context.Context, smurfID string) (*Config, error) {

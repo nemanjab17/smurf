@@ -58,6 +58,30 @@ func (m *MockManager) SetupFixed(_ context.Context, smurfID string, ip string) (
 	return cfg, nil
 }
 
+func (m *MockManager) Recover(_ context.Context, allocations []Allocation) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, a := range allocations {
+		cfg := &Config{
+			TapDevice:  fmt.Sprintf("tap-%s", a.SmurfID[:min(8, len(a.SmurfID))]),
+			IP:         a.IP,
+			Gateway:    GatewayIP,
+			MacAddress: generateMAC(a.SmurfID),
+			Mask:       "/24",
+		}
+		m.allocated[a.SmurfID] = cfg
+
+		ip := net.ParseIP(a.IP).To4()
+		if ip != nil {
+			addr := binary.BigEndian.Uint32(ip) + 1
+			if addr > m.nextIP {
+				m.nextIP = addr
+			}
+		}
+	}
+	return nil
+}
+
 func (m *MockManager) Teardown(_ context.Context, smurfID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
