@@ -12,6 +12,7 @@ type SmurfServiceClient interface {
 	CreateSmurf(ctx context.Context, in *CreateSmurfRequest, opts ...grpc.CallOption) (*SmurfResponse, error)
 	GetSmurf(ctx context.Context, in *GetSmurfRequest, opts ...grpc.CallOption) (*SmurfResponse, error)
 	ListSmurfs(ctx context.Context, in *ListSmurfsRequest, opts ...grpc.CallOption) (*ListSmurfsResponse, error)
+	StartSmurf(ctx context.Context, in *StartSmurfRequest, opts ...grpc.CallOption) (*SmurfResponse, error)
 	StopSmurf(ctx context.Context, in *StopSmurfRequest, opts ...grpc.CallOption) (*OKResponse, error)
 	DeleteSmurf(ctx context.Context, in *DeleteSmurfRequest, opts ...grpc.CallOption) (*OKResponse, error)
 
@@ -46,6 +47,12 @@ func (c *smurfServiceClient) GetSmurf(ctx context.Context, in *GetSmurfRequest, 
 func (c *smurfServiceClient) ListSmurfs(ctx context.Context, in *ListSmurfsRequest, opts ...grpc.CallOption) (*ListSmurfsResponse, error) {
 	out := new(ListSmurfsResponse)
 	err := c.cc.Invoke(ctx, "/"+_serviceName+"/ListSmurfs", in, out, opts...)
+	return out, err
+}
+
+func (c *smurfServiceClient) StartSmurf(ctx context.Context, in *StartSmurfRequest, opts ...grpc.CallOption) (*SmurfResponse, error) {
+	out := new(SmurfResponse)
+	err := c.cc.Invoke(ctx, "/"+_serviceName+"/StartSmurf", in, out, opts...)
 	return out, err
 }
 

@@ -13,6 +13,7 @@ type SmurfServiceServer interface {
 	CreateSmurf(context.Context, *CreateSmurfRequest) (*SmurfResponse, error)
 	GetSmurf(context.Context, *GetSmurfRequest) (*SmurfResponse, error)
 	ListSmurfs(context.Context, *ListSmurfsRequest) (*ListSmurfsResponse, error)
+	StartSmurf(context.Context, *StartSmurfRequest) (*SmurfResponse, error)
 	StopSmurf(context.Context, *StopSmurfRequest) (*OKResponse, error)
 	DeleteSmurf(context.Context, *DeleteSmurfRequest) (*OKResponse, error)
 
@@ -38,6 +39,9 @@ func (UnimplementedSmurfServiceServer) GetSmurf(_ context.Context, _ *GetSmurfRe
 }
 func (UnimplementedSmurfServiceServer) ListSmurfs(_ context.Context, _ *ListSmurfsRequest) (*ListSmurfsResponse, error) {
 	return nil, errUnimplemented("ListSmurfs")
+}
+func (UnimplementedSmurfServiceServer) StartSmurf(_ context.Context, _ *StartSmurfRequest) (*SmurfResponse, error) {
+	return nil, errUnimplemented("StartSmurf")
 }
 func (UnimplementedSmurfServiceServer) StopSmurf(_ context.Context, _ *StopSmurfRequest) (*OKResponse, error) {
 	return nil, errUnimplemented("StopSmurf")
@@ -80,6 +84,7 @@ var _SmurfService_serviceDesc = grpc.ServiceDesc{
 		{MethodName: "CreateSmurf", Handler: _SmurfService_CreateSmurf_Handler},
 		{MethodName: "GetSmurf", Handler: _SmurfService_GetSmurf_Handler},
 		{MethodName: "ListSmurfs", Handler: _SmurfService_ListSmurfs_Handler},
+		{MethodName: "StartSmurf", Handler: _SmurfService_StartSmurf_Handler},
 		{MethodName: "StopSmurf", Handler: _SmurfService_StopSmurf_Handler},
 		{MethodName: "DeleteSmurf", Handler: _SmurfService_DeleteSmurf_Handler},
 		{MethodName: "RegisterPapa", Handler: _SmurfService_RegisterPapa_Handler},
@@ -116,6 +121,14 @@ func _SmurfService_ListSmurfs_Handler(srv any, ctx context.Context, dec func(any
 		return nil, err
 	}
 	return srv.(SmurfServiceServer).ListSmurfs(ctx, req)
+}
+
+func _SmurfService_StartSmurf_Handler(srv any, ctx context.Context, dec func(any) error, _ grpc.UnaryServerInterceptor) (any, error) {
+	req := new(StartSmurfRequest)
+	if err := dec(req); err != nil {
+		return nil, err
+	}
+	return srv.(SmurfServiceServer).StartSmurf(ctx, req)
 }
 
 func _SmurfService_StopSmurf_Handler(srv any, ctx context.Context, dec func(any) error, _ grpc.UnaryServerInterceptor) (any, error) {

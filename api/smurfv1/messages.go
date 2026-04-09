@@ -24,6 +24,10 @@ type ListSmurfsRequest struct {
 	StatusFilter string `json:"status_filter"`
 }
 
+type StartSmurfRequest struct {
+	NameOrId string `json:"name_or_id"`
+}
+
 type StopSmurfRequest struct {
 	NameOrId string `json:"name_or_id"`
 }

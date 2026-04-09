@@ -259,6 +259,19 @@ func (s *Server) ListSmurfs(ctx context.Context, req *smurfv1.ListSmurfsRequest)
 	return resp, nil
 }
 
+func (s *Server) StartSmurf(ctx context.Context, req *smurfv1.StartSmurfRequest) (*smurfv1.SmurfResponse, error) {
+	sm, err := s.vmMgr.Start(ctx, req.NameOrId, string(s.sshPubKey))
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := s.proxy.Start(sm.ID, sm.IP); err != nil {
+		slog.Warn("ssh proxy start failed", "smurf", sm.Name, "err", err)
+	}
+
+	return &smurfv1.SmurfResponse{Smurf: s.smurfToProto(sm)}, nil
+}
+
 func (s *Server) StopSmurf(ctx context.Context, req *smurfv1.StopSmurfRequest) (*smurfv1.OKResponse, error) {
 	sm, err := s.store.GetSmurf(ctx, req.NameOrId)
 	if err != nil {

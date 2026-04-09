@@ -191,20 +191,13 @@ func (m *Manager) fork(ctx context.Context, opts CreateOpts) (*state.Smurf, erro
 	if err != nil {
 		return nil, fmt.Errorf("get source smurf %q: %w", opts.FromSmurf, err)
 	}
-	if src.Status != state.StatusRunning {
-		return nil, fmt.Errorf("source smurf %q is %s, must be running to fork", src.Name, src.Status)
+	if src.Status != state.StatusRunning && src.Status != state.StatusStopped {
+		return nil, fmt.Errorf("source smurf %q is %s, must be running or stopped to fork", src.Name, src.Status)
 	}
 
 	papa, err := m.store.GetPapa(ctx, src.PapaID)
 	if err != nil {
 		return nil, fmt.Errorf("get papa %q: %w", src.PapaID, err)
-	}
-
-	m.mu.Lock()
-	srcVM, ok := m.running[src.ID]
-	m.mu.Unlock()
-	if !ok {
-		return nil, fmt.Errorf("source smurf %q not tracked as running", src.Name)
 	}
 
 	id := ulid.Make().String()
@@ -219,35 +212,51 @@ func (m *Manager) fork(ctx context.Context, opts CreateOpts) (*state.Smurf, erro
 		return nil, fmt.Errorf("create smurf dir: %w", err)
 	}
 
-	// Flush guest filesystem caches before pausing. Without this, recent
-	// writes may still be in the kernel page cache and won't appear in
-	// the rootfs ext4 image we copy.
-	slog.Info("syncing guest filesystem", "source", src.Name)
-	if err := syncGuest(ctx, src.IP); err != nil {
-		slog.Warn("guest sync failed, fork may miss recent writes", "err", err)
-	}
-
-	// Pause source VM for a consistent rootfs copy, then resume.
-	slog.Info("pausing source for fork", "source", src.Name)
-	if err := m.backend.Pause(ctx, srcVM); err != nil {
-		_ = m.net.Teardown(ctx, id)
-		_ = os.RemoveAll(smurfDir)
-		return nil, fmt.Errorf("pause source: %w", err)
-	}
-
 	rootfsPath := filepath.Join(smurfDir, "rootfs.ext4")
-	copyErr := copyFile(src.RootfsPath, rootfsPath)
 
-	// Always resume source, even if copy failed.
-	if err := m.backend.Resume(ctx, srcVM); err != nil {
-		slog.Error("failed to resume source after fork", "source", src.Name, "err", err)
-	}
-	slog.Info("resumed source after fork", "source", src.Name)
+	if src.Status == state.StatusRunning {
+		// Running source: sync guest, pause, copy, resume.
+		m.mu.Lock()
+		srcVM, ok := m.running[src.ID]
+		m.mu.Unlock()
+		if !ok {
+			_ = m.net.Teardown(ctx, id)
+			_ = os.RemoveAll(smurfDir)
+			return nil, fmt.Errorf("source smurf %q not tracked as running", src.Name)
+		}
 
-	if copyErr != nil {
-		_ = m.net.Teardown(ctx, id)
-		_ = os.RemoveAll(smurfDir)
-		return nil, fmt.Errorf("copy rootfs: %w", copyErr)
+		slog.Info("syncing guest filesystem", "source", src.Name)
+		if err := syncGuest(ctx, src.IP); err != nil {
+			slog.Warn("guest sync failed, fork may miss recent writes", "err", err)
+		}
+
+		slog.Info("pausing source for fork", "source", src.Name)
+		if err := m.backend.Pause(ctx, srcVM); err != nil {
+			_ = m.net.Teardown(ctx, id)
+			_ = os.RemoveAll(smurfDir)
+			return nil, fmt.Errorf("pause source: %w", err)
+		}
+
+		copyErr := copyFile(src.RootfsPath, rootfsPath)
+
+		if err := m.backend.Resume(ctx, srcVM); err != nil {
+			slog.Error("failed to resume source after fork", "source", src.Name, "err", err)
+		}
+		slog.Info("resumed source after fork", "source", src.Name)
+
+		if copyErr != nil {
+			_ = m.net.Teardown(ctx, id)
+			_ = os.RemoveAll(smurfDir)
+			return nil, fmt.Errorf("copy rootfs: %w", copyErr)
+		}
+	} else {
+		// Stopped source: rootfs is quiescent, copy directly.
+		slog.Info("forking from stopped smurf", "source", src.Name)
+		if err := copyFile(src.RootfsPath, rootfsPath); err != nil {
+			_ = m.net.Teardown(ctx, id)
+			_ = os.RemoveAll(smurfDir)
+			return nil, fmt.Errorf("copy rootfs: %w", err)
+		}
 	}
 
 	if opts.DiskSizeMB > DefaultDiskSizeMB {
@@ -303,6 +312,63 @@ func (m *Manager) fork(ctx context.Context, opts CreateOpts) (*state.Smurf, erro
 
 	m.mu.Lock()
 	m.running[id] = rvm
+	m.mu.Unlock()
+
+	return sm, nil
+}
+
+// Start re-boots a stopped smurf from its existing rootfs.
+func (m *Manager) Start(ctx context.Context, nameOrID string, sshPubKey string) (*state.Smurf, error) {
+	sm, err := m.store.GetSmurf(ctx, nameOrID)
+	if err != nil {
+		return nil, fmt.Errorf("get smurf: %w", err)
+	}
+	if sm.Status == state.StatusRunning {
+		return nil, fmt.Errorf("smurf %q is already running", sm.Name)
+	}
+	if sm.Status != state.StatusStopped {
+		return nil, fmt.Errorf("smurf %q is %s, must be stopped to start", sm.Name, sm.Status)
+	}
+
+	papa, err := m.store.GetPapa(ctx, sm.PapaID)
+	if err != nil {
+		return nil, fmt.Errorf("get papa %q: %w", sm.PapaID, err)
+	}
+
+	netCfg, err := m.net.Setup(ctx, sm.ID)
+	if err != nil {
+		return nil, fmt.Errorf("network setup: %w", err)
+	}
+
+	// Re-prepare rootfs with the new IP (network may have changed)
+	if sshPubKey != "" {
+		if err := PrepareRootfs(sm.RootfsPath, []byte(sshPubKey), sm.Name, netCfg.IP, netCfg.Gateway); err != nil {
+			slog.Warn("rootfs preparation failed", "err", err)
+		}
+	}
+
+	opts := CreateOpts{
+		VCPUs:    sm.VCPUs,
+		MemoryMB: sm.MemoryMB,
+	}
+	rvm, err := m.backend.Boot(ctx, sm.ID, papa.KernelPath, sm.RootfsPath, opts, netCfg)
+	if err != nil {
+		_ = m.net.Teardown(ctx, sm.ID)
+		return nil, fmt.Errorf("boot vm: %w", err)
+	}
+
+	sm.Status = state.StatusRunning
+	sm.IP = netCfg.IP
+	sm.NetID = sm.ID
+	sm.SocketPath = rvm.SocketPath
+	sm.PID = rvm.PID
+	sm.StoppedAt = nil
+	if err := m.store.UpdateSmurf(ctx, sm); err != nil {
+		return nil, fmt.Errorf("update smurf state: %w", err)
+	}
+
+	m.mu.Lock()
+	m.running[sm.ID] = rvm
 	m.mu.Unlock()
 
 	return sm, nil

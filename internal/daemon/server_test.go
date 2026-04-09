@@ -410,7 +410,7 @@ func TestServer_CreateSmurf_FromSmurf(t *testing.T) {
 	}
 }
 
-func TestServer_CreateSmurf_FromSmurf_SourceNotRunning(t *testing.T) {
+func TestServer_CreateSmurf_FromSmurf_SourceStopped(t *testing.T) {
 	h := newHarness(t)
 	seedPapa(t, h, "base")
 
@@ -428,13 +428,42 @@ func TestServer_CreateSmurf_FromSmurf_SourceNotRunning(t *testing.T) {
 		t.Fatalf("stop source: %v", err)
 	}
 
-	// Fork should fail because source is stopped
+	// Fork from stopped smurf should succeed (copies rootfs directly)
+	resp, err := h.client.CreateSmurf(context.Background(), &smurfv1.CreateSmurfRequest{
+		Name:      "dev2",
+		FromSmurf: "dev",
+	})
+	if err != nil {
+		t.Fatalf("fork from stopped smurf: %v", err)
+	}
+	if resp.Smurf.Status != "running" {
+		t.Errorf("want status running, got %s", resp.Smurf.Status)
+	}
+}
+
+func TestServer_CreateSmurf_FromSmurf_SourceError(t *testing.T) {
+	h := newHarness(t)
+	seedPapa(t, h, "base")
+
+	_, err := h.client.CreateSmurf(context.Background(), &smurfv1.CreateSmurfRequest{
+		Name:   "dev",
+		PapaId: "base",
+	})
+	if err != nil {
+		t.Fatalf("create source: %v", err)
+	}
+
+	// Manually set source to error state
+	src, _ := h.store.GetSmurf(context.Background(), "dev")
+	_ = h.store.UpdateSmurfStatus(context.Background(), src.ID, "error")
+
+	// Fork from error smurf should fail
 	_, err = h.client.CreateSmurf(context.Background(), &smurfv1.CreateSmurfRequest{
 		Name:      "dev2",
 		FromSmurf: "dev",
 	})
 	if err == nil {
-		t.Fatal("expected error forking from stopped smurf, got nil")
+		t.Fatal("expected error forking from error smurf, got nil")
 	}
 }
 
