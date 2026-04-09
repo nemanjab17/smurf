@@ -148,6 +148,12 @@ SMURFD_LISTEN=0.0.0.0:7070 smurfd &
 | `SMURFD_SOCKET` | `/var/run/smurfd.sock` | Unix socket path |
 | `SMURFD_DB` | `/var/lib/smurf/smurf.db` | SQLite database path |
 
+## Security
+
+The gRPC API between the CLI and daemon is **unauthenticated and unencrypted**. The `GetSSHConfig` RPC returns SSH private keys in plaintext. Do not expose port 7070 to untrusted networks.
+
+**Recommended:** Use [Tailscale](https://tailscale.com) or a VPN to secure the connection between your laptop and the daemon host. The `provision-host.sh` script supports `--tailscale-key` for easy setup.
+
 ## Requirements
 
 **Daemon host:**

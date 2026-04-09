@@ -154,12 +154,12 @@ DNS
   # Also set a static resolv.conf as fallback in case resolved isn't running
   rm -f "$MOUNT_DIR/etc/resolv.conf"
   echo "nameserver 1.1.1.1" > "$MOUNT_DIR/etc/resolv.conf"
-  chroot "$MOUNT_DIR" bash -c 'echo "root:root" | chpasswd'
+  chroot "$MOUNT_DIR" passwd -l root
 
   mkdir -p "$MOUNT_DIR/etc/ssh/sshd_config.d"
   cat > "$MOUNT_DIR/etc/ssh/sshd_config.d/smurf.conf" <<'SSHCONF'
-PermitRootLogin yes
-PasswordAuthentication yes
+PermitRootLogin prohibit-password
+PasswordAuthentication no
 SSHCONF
 
   cat > "$MOUNT_DIR/etc/fstab" <<'FSTAB'

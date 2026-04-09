@@ -13,6 +13,9 @@ service SmurfService {
   rpc GetPapa(GetPapaRequest)           returns (PapaResponse);
   rpc ListPapas(ListPapasRequest)       returns (ListPapasResponse);
   rpc DeletePapa(DeletePapaRequest)     returns (OKResponse);
+  rpc SnapshotPapa(SnapshotPapaRequest) returns (SnapshotPapaResponse);
+
+  rpc GetSSHConfig(GetSSHConfigRequest) returns (SSHConfigResponse);
 }
 
 // ── Smurf messages ───────────────────────────────────────────────────────────
@@ -20,11 +23,13 @@ service SmurfService {
 message CreateSmurfRequest {
   string name         = 1;
   string papa_id      = 2; // name or ID
-  int32  vcpus        = 3;
-  int32  memory_mb    = 4;
-  int32  disk_size_mb = 5;
-  string repo_url     = 6;
-  string repo_branch  = 7;
+  string from_smurf   = 3; // fork from a running smurf (overrides papa_id)
+  int32  vcpus        = 4;
+  int32  memory_mb    = 5;
+  int32  disk_size_mb = 6;
+  string repo_url     = 7;
+  string repo_branch  = 8;
+  string ssh_pub_key  = 9;
 }
 
 message GetSmurfRequest    { string name_or_id = 1; }
@@ -33,15 +38,16 @@ message StopSmurfRequest   { string name_or_id = 1; }
 message DeleteSmurfRequest { string name_or_id = 1; }
 
 message SmurfInfo {
-  string name        = 1;
-  string id          = 2;
+  string id          = 1;
+  string name        = 2;
   string status      = 3;
   string ip          = 4;
-  string papa_id     = 5;
-  int32  vcpus       = 6;
-  int32  memory_mb   = 7;
-  string repo_url    = 8;
-  string created_at  = 9;
+  int32  ssh_port    = 5; // proxy port on daemon host (0 if not running)
+  string papa_id     = 6;
+  int32  vcpus       = 7;
+  int32  memory_mb   = 8;
+  string repo_url    = 9;
+  string created_at  = 10;
 }
 
 message SmurfResponse      { SmurfInfo smurf = 1; }
@@ -59,6 +65,9 @@ message GetPapaRequest    { string name_or_id = 1; }
 message ListPapasRequest  {}
 message DeletePapaRequest { string name_or_id = 1; }
 
+message SnapshotPapaRequest  { string name_or_id = 1; }
+message SnapshotPapaResponse { PapaInfo papa = 1; }
+
 message PapaInfo {
   string id           = 1;
   string name         = 2;
@@ -71,6 +80,17 @@ message PapaInfo {
 
 message PapaResponse      { PapaInfo papa = 1; }
 message ListPapasResponse { repeated PapaInfo papas = 1; }
+
+// ── SSH ──────────────────────────────────────────────────────────────────────
+
+message GetSSHConfigRequest { string name_or_id = 1; }
+
+message SSHConfigResponse {
+  string ip          = 1;
+  string user        = 2;
+  string private_key = 3; // PEM-encoded ed25519 private key
+  int32  proxy_port  = 4; // TCP port on daemon host forwarding to smurf:22
+}
 
 // ── Shared ────────────────────────────────────────────────────────────────────
 
