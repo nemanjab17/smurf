@@ -143,6 +143,16 @@ APT
   # Configure
   echo "smurf" > "$MOUNT_DIR/etc/hostname"
   echo "127.0.0.1 localhost smurf" > "$MOUNT_DIR/etc/hosts"
+  # Configure systemd-resolved with upstream DNS.
+  # The static resolv.conf alone gets overwritten by the stub symlink at boot.
+  mkdir -p "$MOUNT_DIR/etc/systemd/resolved.conf.d"
+  cat > "$MOUNT_DIR/etc/systemd/resolved.conf.d/dns.conf" <<'DNS'
+[Resolve]
+DNS=1.1.1.1 8.8.8.8
+FallbackDNS=1.0.0.1 8.8.4.4
+DNS
+  # Also set a static resolv.conf as fallback in case resolved isn't running
+  rm -f "$MOUNT_DIR/etc/resolv.conf"
   echo "nameserver 1.1.1.1" > "$MOUNT_DIR/etc/resolv.conf"
   chroot "$MOUNT_DIR" bash -c 'echo "root:root" | chpasswd'
 
