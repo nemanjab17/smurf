@@ -42,7 +42,20 @@ func (m *Manager) SetSkipSSHWait(skip bool) {
 // RecoverRunning reconnects to Firecracker VMs that are marked as running in
 // the database. This restores the in-memory running map after a smurfd restart
 // so that fork, stop, and other operations work on pre-existing VMs.
+// It also marks any VMs stuck in "creating" as "error" — these are leftovers
+// from a crash during VM creation (e.g. spot instance preemption).
 func (m *Manager) RecoverRunning(ctx context.Context) {
+	// Sweep VMs stuck in "creating" — they'll never finish after a restart.
+	creating := state.StatusCreating
+	zombies, err := m.store.ListSmurfs(ctx, state.SmurfFilter{Status: &creating})
+	if err != nil {
+		slog.Warn("failed to list creating smurfs for cleanup", "err", err)
+	}
+	for _, z := range zombies {
+		slog.Warn("marking orphaned creating vm as error", "smurf", z.Name)
+		_ = m.store.UpdateSmurfStatus(ctx, z.ID, state.StatusError)
+	}
+
 	running := state.StatusRunning
 	smurfs, err := m.store.ListSmurfs(ctx, state.SmurfFilter{Status: &running})
 	if err != nil {

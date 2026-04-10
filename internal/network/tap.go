@@ -29,32 +29,39 @@ func DeleteTap(name string) error {
 	return nil
 }
 
-// EnsureBridge creates the smurf bridge and configures NAT if it doesn't exist.
+// EnsureBridge creates the smurf bridge if it doesn't exist and always
+// ensures NAT and IP forwarding are configured. iptables rules are ephemeral
+// and may be lost across reboots (e.g. spot instance preemption), so they
+// are re-applied on every daemon start.
 func EnsureBridge(bridge, cidr string) error {
-	// Check if bridge already exists
-	err := exec.Command("ip", "link", "show", bridge).Run()
-	if err == nil {
-		return nil // already exists
-	}
-
-	cmds := [][]string{
-		{"ip", "link", "add", bridge, "type", "bridge"},
-		{"ip", "addr", "add", cidr, "dev", bridge},
-		{"ip", "link", "set", bridge, "up"},
-		// Enable IP forwarding
-		{"sysctl", "-w", "net.ipv4.ip_forward=1"},
-	}
-	for _, args := range cmds {
-		if out, err := exec.Command(args[0], args[1:]...).CombinedOutput(); err != nil {
-			return fmt.Errorf("cmd %v: %w: %s", args, err, out)
+	// Create bridge if it doesn't already exist.
+	if err := exec.Command("ip", "link", "show", bridge).Run(); err != nil {
+		cmds := [][]string{
+			{"ip", "link", "add", bridge, "type", "bridge"},
+			{"ip", "addr", "add", cidr, "dev", bridge},
+			{"ip", "link", "set", bridge, "up"},
+		}
+		for _, args := range cmds {
+			if out, err := exec.Command(args[0], args[1:]...).CombinedOutput(); err != nil {
+				return fmt.Errorf("cmd %v: %w: %s", args, err, out)
+			}
 		}
 	}
 
-	// Set up NAT (masquerade outbound traffic from smurfs)
-	natCmd := exec.Command("iptables", "-t", "nat", "-A", "POSTROUTING",
-		"-s", cidr, "!", "-o", bridge, "-j", "MASQUERADE")
-	if out, err := natCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("iptables masquerade: %w: %s", err, out)
+	// Always ensure IP forwarding — may be reset after reboot.
+	if out, err := exec.Command("sysctl", "-w", "net.ipv4.ip_forward=1").CombinedOutput(); err != nil {
+		return fmt.Errorf("sysctl ip_forward: %w: %s", err, out)
+	}
+
+	// Always ensure NAT rule exists. Use -C to check first to avoid duplicates.
+	natArgs := []string{"-t", "nat", "-C", "POSTROUTING",
+		"-s", cidr, "!", "-o", bridge, "-j", "MASQUERADE"}
+	if exec.Command("iptables", natArgs...).Run() != nil {
+		// Rule doesn't exist — add it.
+		natArgs[2] = "-A" // replace -C (check) with -A (append)
+		if out, err := exec.Command("iptables", natArgs...).CombinedOutput(); err != nil {
+			return fmt.Errorf("iptables masquerade: %w: %s", err, out)
+		}
 	}
 	return nil
 }

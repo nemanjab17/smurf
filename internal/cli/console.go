@@ -28,6 +28,20 @@ func newConsoleCmd() *cobra.Command {
 				return err
 			}
 
+			// Start the smurf if it's stopped.
+			info, err := c.GetSmurf(cmd.Context(), &smurfv1.GetSmurfRequest{NameOrId: args[0]})
+			if err != nil {
+				conn.Close()
+				return err
+			}
+			if info.Smurf.Status == "stopped" {
+				fmt.Printf("Starting %s...\n", info.Smurf.Name)
+				if _, err := c.StartSmurf(cmd.Context(), &smurfv1.StartSmurfRequest{NameOrId: args[0]}); err != nil {
+					conn.Close()
+					return fmt.Errorf("start smurf: %w", err)
+				}
+			}
+
 			resp, err := c.GetSSHConfig(cmd.Context(), &smurfv1.GetSSHConfigRequest{
 				NameOrId: args[0],
 			})
