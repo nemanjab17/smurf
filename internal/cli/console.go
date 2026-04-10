@@ -69,11 +69,19 @@ func newConsoleCmd() *cobra.Command {
 				return fmt.Errorf("ssh not found in PATH")
 			}
 
-			// When remote with a proxy port, SSH directly to daemon-host:proxy-port.
-			// No jump host, no proxy keys needed.
+			// Resolve SSH target.
 			sshHost := resp.Ip
 			sshPort := "22"
-			if h := client.Host(); h != "" && resp.ProxyPort > 0 {
+
+			if client.TunnelMgr != nil && resp.ProxyPort > 0 {
+				addr, err := client.TunnelMgr.Tunnel(int(resp.ProxyPort))
+				if err != nil {
+					return fmt.Errorf("establish IAP tunnel to SSH proxy port %d: %w", resp.ProxyPort, err)
+				}
+				host, port, _ := net.SplitHostPort(addr)
+				sshHost = host
+				sshPort = port
+			} else if h := client.Host(); h != "" && resp.ProxyPort > 0 {
 				host, _, _ := net.SplitHostPort(h)
 				if host == "" {
 					host = h
@@ -95,6 +103,13 @@ func newConsoleCmd() *cobra.Command {
 				target,
 			}
 
+			if client.TunnelMgr != nil {
+				sshCmd := exec.Command(sshBin, sshArgs[1:]...)
+				sshCmd.Stdin = os.Stdin
+				sshCmd.Stdout = os.Stdout
+				sshCmd.Stderr = os.Stderr
+				return sshCmd.Run()
+			}
 			return syscall.Exec(sshBin, sshArgs, os.Environ())
 		},
 	}
