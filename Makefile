@@ -3,7 +3,8 @@ SMURF_BIN    := $(BINARY_DIR)/smurf
 SMURFD_BIN   := $(BINARY_DIR)/smurfd
 GO           := go
 GOFLAGS      := -trimpath
-LDFLAGS      := -s -w
+VERSION      ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
+LDFLAGS      := -s -w -X github.com/nemanjab17/smurf/internal/version.Version=$(VERSION)
 
 .PHONY: all build smurf smurfd clean test lint proto
 

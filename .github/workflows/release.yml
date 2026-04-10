@@ -32,7 +32,8 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
         run: |
           bin="smurf-${{ matrix.goos }}-${{ matrix.goarch }}"
-          go build -trimpath -ldflags "-s -w" -o "${bin}" ./cmd/smurf
+          version="${GITHUB_REF_NAME}"
+          go build -trimpath -ldflags "-s -w -X github.com/nemanjab17/smurf/internal/version.Version=${version}" -o "${bin}" ./cmd/smurf
 
       - name: Upload release asset
         env:
