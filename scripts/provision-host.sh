@@ -16,9 +16,9 @@ set -euo pipefail
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-FC_VERSION="1.7.0"
+FC_VERSION="1.11.0"
 RELEASE_REPO="nemanjab17/smurf"
-RELEASE_TAG="v0.1.0"
+RELEASE_TAG="v0.6.0"
 DATA_DIR="/var/lib/smurf"
 LISTEN_PORT="7070"
 
@@ -125,7 +125,7 @@ elif [ -f "$ROOTFS_PATH" ]; then
   echo "==> Rootfs exists: $ROOTFS_PATH"
 else
   echo "==> Building Ubuntu 22.04 rootfs (this takes a few minutes)..."
-  ROOTFS_SIZE_MB=2048
+  ROOTFS_SIZE_MB=4096
   MOUNT_DIR=$(mktemp -d)
 
   dd if=/dev/zero of="$ROOTFS_PATH" bs=1M count=$ROOTFS_SIZE_MB status=progress
@@ -135,7 +135,7 @@ else
   trap "umount '$MOUNT_DIR' 2>/dev/null; rmdir '$MOUNT_DIR' 2>/dev/null" EXIT
 
   debootstrap --arch=$GO_ARCH \
-    --include=systemd,systemd-sysv,openssh-server,git,curl,wget,ca-certificates,sudo,iproute2,iputils-ping,net-tools,dbus \
+    --include=systemd,systemd-sysv,openssh-server,git,curl,wget,ca-certificates,sudo,iproute2,iputils-ping,net-tools,dbus,iptables,software-properties-common \
     jammy "$MOUNT_DIR" http://archive.ubuntu.com/ubuntu/ 2>&1 | tail -3
 
   # Add universe for haveged
@@ -146,20 +146,16 @@ deb http://archive.ubuntu.com/ubuntu jammy-security main universe
 APT
   chroot "$MOUNT_DIR" apt-get update -qq 2>/dev/null
   chroot "$MOUNT_DIR" apt-get install -y -qq haveged 2>/dev/null
-  chroot "$MOUNT_DIR" apt-get clean
 
   # Configure
   echo "smurf" > "$MOUNT_DIR/etc/hostname"
   echo "127.0.0.1 localhost smurf" > "$MOUNT_DIR/etc/hosts"
-  # Configure systemd-resolved with upstream DNS.
-  # The static resolv.conf alone gets overwritten by the stub symlink at boot.
   mkdir -p "$MOUNT_DIR/etc/systemd/resolved.conf.d"
   cat > "$MOUNT_DIR/etc/systemd/resolved.conf.d/dns.conf" <<'DNS'
 [Resolve]
 DNS=1.1.1.1 8.8.8.8
 FallbackDNS=1.0.0.1 8.8.4.4
 DNS
-  # Also set a static resolv.conf as fallback in case resolved isn't running
   rm -f "$MOUNT_DIR/etc/resolv.conf"
   echo "nameserver 1.1.1.1" > "$MOUNT_DIR/etc/resolv.conf"
   chroot "$MOUNT_DIR" passwd -l root
@@ -178,7 +174,7 @@ FSTAB
   mkdir -p "$MOUNT_DIR/root/.ssh"
   chmod 700 "$MOUNT_DIR/root/.ssh"
 
-  # Create default smurf user with sudo access
+  # Create default smurf user with sudo + docker access
   chroot "$MOUNT_DIR" useradd -m -s /bin/bash -G sudo smurf
   chroot "$MOUNT_DIR" passwd -d smurf
   echo "smurf ALL=(ALL) NOPASSWD:ALL" > "$MOUNT_DIR/etc/sudoers.d/smurf"
@@ -187,7 +183,66 @@ FSTAB
   chmod 700 "$MOUNT_DIR/home/smurf/.ssh"
   chroot "$MOUNT_DIR" chown -R smurf:smurf /home/smurf/.ssh
 
+  # Disable IPv6 (guest has no IPv6 route)
+  cat > "$MOUNT_DIR/etc/sysctl.d/99-smurf.conf" <<'SYSCTL'
+net.ipv6.conf.all.disable_ipv6 = 1
+net.ipv6.conf.default.disable_ipv6 = 1
+SYSCTL
+
+  # Docker CE
+  chroot "$MOUNT_DIR" bash -c 'curl -fsSL https://get.docker.com | sh' 2>&1 | tail -3
+  chroot "$MOUNT_DIR" systemctl enable docker
+  chroot "$MOUNT_DIR" usermod -aG docker smurf
+  chroot "$MOUNT_DIR" update-alternatives --set iptables /usr/sbin/iptables-legacy
+  chroot "$MOUNT_DIR" update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy
+  mkdir -p "$MOUNT_DIR/etc/docker"
+  cat > "$MOUNT_DIR/etc/docker/daemon.json" <<'DOCKER'
+{
+  "iptables": true,
+  "ip-forward": true,
+  "ip-masq": true,
+  "storage-driver": "overlay2",
+  "ip6tables": false
+}
+DOCKER
+  mkdir -p "$MOUNT_DIR/etc/systemd/system/docker.service.d"
+  cat > "$MOUNT_DIR/etc/systemd/system/docker.service.d/no-raw.conf" <<'OVERRIDE'
+[Service]
+Environment="DOCKER_INSECURE_NO_IPTABLES_RAW=1"
+OVERRIDE
+
+  # Go
+  curl -fsSL "https://go.dev/dl/go1.24.2.linux-${GO_ARCH}.tar.gz" | tar -C "$MOUNT_DIR/usr/local" -xzf -
+  ln -sf /usr/local/go/bin/go "$MOUNT_DIR/usr/local/bin/go"
+  ln -sf /usr/local/go/bin/gofmt "$MOUNT_DIR/usr/local/bin/gofmt"
+
+  # Python 3.13 + uv
+  chroot "$MOUNT_DIR" bash -c '
+    add-apt-repository -y ppa:deadsnakes/ppa 2>/dev/null
+    apt-get update -qq 2>/dev/null
+    apt-get install -y -qq python3.13 python3.13-venv python3.13-dev 2>/dev/null
+    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.13 1
+    curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
+  ' 2>&1 | tail -3
+
+  # GitHub CLI
+  chroot "$MOUNT_DIR" bash -c '
+    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/githubcli-archive-keyring.gpg
+    echo "deb [arch='"$GO_ARCH"' signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list
+    apt-get update -qq 2>/dev/null
+    apt-get install -y -qq gh 2>/dev/null
+  ' 2>&1 | tail -3
+
+  # Node.js 22 + Claude Code
+  chroot "$MOUNT_DIR" bash -c '
+    curl -fsSL https://deb.nodesource.com/setup_22.x | bash - 2>/dev/null
+    apt-get install -y -qq nodejs 2>/dev/null
+    npm install -g @anthropic-ai/claude-code
+  ' 2>&1 | tail -3
+
   chroot "$MOUNT_DIR" locale-gen en_US.UTF-8 2>/dev/null || true
+  chroot "$MOUNT_DIR" apt-get clean
+  chroot "$MOUNT_DIR" rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
   umount "$MOUNT_DIR"
   rmdir "$MOUNT_DIR"
