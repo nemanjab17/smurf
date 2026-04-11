@@ -7,13 +7,29 @@ set -euo pipefail
 OUTPUT_DIR="${1:-/var/lib/smurf/papas/base}"
 ROOTFS_SIZE="5G"
 ROOTFS_IMG="$OUTPUT_DIR/rootfs.ext4"
-KERNEL_URL="https://s3.amazonaws.com/spec.ccfc.min/img/quickstart_guide/x86_64/kernels/vmlinux.bin"
 KERNEL_PATH="$OUTPUT_DIR/vmlinux"
 MOUNT_DIR=$(mktemp -d)
 
+ARCH=$(uname -m)
+case "$ARCH" in
+  x86_64)  FC_ARCH="x86_64" ;;
+  aarch64) FC_ARCH="aarch64" ;;
+  *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
+esac
+
+# Use Firecracker CI 6.1 LTS kernel instead of the old quickstart 4.14 kernel
+FC_CI_VERSION="v1.7"
+KERNEL_URL=$(curl -s "http://spec.ccfc.min.s3.amazonaws.com/?prefix=firecracker-ci/${FC_CI_VERSION}/${FC_ARCH}/vmlinux-6.1&list-type=2" \
+  | grep -oP "(?<=<Key>)(firecracker-ci/${FC_CI_VERSION}/${FC_ARCH}/vmlinux-6\.1[0-9.]+)(?=</Key>)" \
+  | sort -V | tail -1)
+if [ -z "$KERNEL_URL" ]; then
+  echo "ERROR: Could not find 6.1 kernel in Firecracker CI artifacts"; exit 1
+fi
+KERNEL_URL="https://s3.amazonaws.com/spec.ccfc.min/${KERNEL_URL}"
+
 mkdir -p "$OUTPUT_DIR"
 
-echo "==> Downloading Firecracker-compatible kernel"
+echo "==> Downloading Firecracker 6.1 LTS kernel"
 if [ ! -f "$KERNEL_PATH" ]; then
   curl -fsSL "$KERNEL_URL" -o "$KERNEL_PATH"
   echo "  Kernel: $KERNEL_PATH"

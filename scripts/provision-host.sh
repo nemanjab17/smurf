@@ -100,8 +100,16 @@ mkdir -p "$DATA_DIR"/{smurfs,papas/base,sockets,logs,ssh}
 
 KERNEL_PATH="$DATA_DIR/papas/base/vmlinux"
 if [ ! -f "$KERNEL_PATH" ]; then
-  echo "==> Downloading Firecracker kernel"
-  KERNEL_URL="https://s3.amazonaws.com/spec.ccfc.min/img/quickstart_guide/${FC_ARCH}/kernels/vmlinux.bin"
+  echo "==> Downloading Firecracker 6.1 LTS kernel"
+  FC_CI_VERSION="v1.7"
+  KERNEL_KEY=$(curl -s "http://spec.ccfc.min.s3.amazonaws.com/?prefix=firecracker-ci/${FC_CI_VERSION}/${FC_ARCH}/vmlinux-6.1&list-type=2" \
+    | grep -oP "(?<=<Key>)(firecracker-ci/${FC_CI_VERSION}/${FC_ARCH}/vmlinux-6\.1[0-9.]+)(?=</Key>)" \
+    | sort -V | tail -1)
+  if [ -z "$KERNEL_KEY" ]; then
+    echo "ERROR: Could not find 6.1 kernel in Firecracker CI artifacts"; exit 1
+  fi
+  KERNEL_URL="https://s3.amazonaws.com/spec.ccfc.min/${KERNEL_KEY}"
+  echo "  Fetching: $KERNEL_URL"
   curl -fsSL "$KERNEL_URL" -o "$KERNEL_PATH" 2>&1
   echo "  Kernel: $(file "$KERNEL_PATH" | cut -d: -f2)"
 else

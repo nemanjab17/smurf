@@ -170,5 +170,5 @@ func reconnect(ctx context.Context, id, socketPath, ip string, pid int) (*Runnin
 }
 
 func kernelArgs() string {
-	return "rw console=ttyS0 noapic reboot=k panic=1 pci=off nomodule"
+	return "root=/dev/vda rw console=ttyS0 noapic reboot=k panic=1 pci=off nomodule"
 }
