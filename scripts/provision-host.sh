@@ -101,7 +101,7 @@ mkdir -p "$DATA_DIR"/{smurfs,papas/base,sockets,logs,ssh}
 KERNEL_PATH="$DATA_DIR/papas/base/vmlinux"
 if [ ! -f "$KERNEL_PATH" ]; then
   echo "==> Downloading Firecracker 6.1 LTS kernel"
-  FC_CI_VERSION="v1.7"
+  FC_CI_VERSION="v1.11"
   KERNEL_KEY=$(curl -s "http://spec.ccfc.min.s3.amazonaws.com/?prefix=firecracker-ci/${FC_CI_VERSION}/${FC_ARCH}/vmlinux-6.1&list-type=2" \
     | grep -oP "(?<=<Key>)(firecracker-ci/${FC_CI_VERSION}/${FC_ARCH}/vmlinux-6\.1[0-9.]+)(?=</Key>)" \
     | sort -V | tail -1)

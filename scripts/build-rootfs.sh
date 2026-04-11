@@ -18,7 +18,7 @@ case "$ARCH" in
 esac
 
 # Use Firecracker CI 6.1 LTS kernel instead of the old quickstart 4.14 kernel
-FC_CI_VERSION="v1.7"
+FC_CI_VERSION="v1.11"
 KERNEL_URL=$(curl -s "http://spec.ccfc.min.s3.amazonaws.com/?prefix=firecracker-ci/${FC_CI_VERSION}/${FC_ARCH}/vmlinux-6.1&list-type=2" \
   | grep -oP "(?<=<Key>)(firecracker-ci/${FC_CI_VERSION}/${FC_ARCH}/vmlinux-6\.1[0-9.]+)(?=</Key>)" \
   | sort -V | tail -1)
