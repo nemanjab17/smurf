@@ -175,12 +175,20 @@ chroot "$MOUNT_DIR" bash -c '
   apt-get install -y -qq gh 2>/dev/null
 ' 2>&1 | tail -3
 
-echo "==> Installing Node.js 22 + Claude Code"
+echo "==> Installing Node.js 22"
 chroot "$MOUNT_DIR" bash -c '
   curl -fsSL https://deb.nodesource.com/setup_22.x | bash - 2>/dev/null
   apt-get install -y -qq nodejs 2>/dev/null
-  npm install -g @anthropic-ai/claude-code
 ' 2>&1 | tail -3
+
+echo "==> Installing Claude Code"
+# Run the installer on the host (chroot can't execute the binary due to missing /proc),
+# then copy the resulting binary into the rootfs.
+CLAUDE_TMP=$(mktemp -d)
+HOME="$CLAUDE_TMP" curl -fsSL https://claude.ai/install.sh | HOME="$CLAUDE_TMP" bash 2>&1 | tail -3
+cp -L "$CLAUDE_TMP/.local/bin/claude" "$MOUNT_DIR/usr/local/bin/claude"
+chmod +x "$MOUNT_DIR/usr/local/bin/claude"
+rm -rf "$CLAUDE_TMP"
 
 # Locale
 chroot "$MOUNT_DIR" locale-gen en_US.UTF-8 2>/dev/null || true

@@ -233,12 +233,18 @@ OVERRIDE
     apt-get install -y -qq gh 2>/dev/null
   ' 2>&1 | tail -3
 
-  # Node.js 22 + Claude Code
+  # Node.js 22
   chroot "$MOUNT_DIR" bash -c '
     curl -fsSL https://deb.nodesource.com/setup_22.x | bash - 2>/dev/null
     apt-get install -y -qq nodejs 2>/dev/null
-    npm install -g @anthropic-ai/claude-code
   ' 2>&1 | tail -3
+
+  # Claude Code — run installer on the host, copy binary into rootfs
+  CLAUDE_TMP=$(mktemp -d)
+  HOME="$CLAUDE_TMP" curl -fsSL https://claude.ai/install.sh | HOME="$CLAUDE_TMP" bash 2>&1 | tail -3
+  cp -L "$CLAUDE_TMP/.local/bin/claude" "$MOUNT_DIR/usr/local/bin/claude"
+  chmod +x "$MOUNT_DIR/usr/local/bin/claude"
+  rm -rf "$CLAUDE_TMP"
 
   chroot "$MOUNT_DIR" locale-gen en_US.UTF-8 2>/dev/null || true
   chroot "$MOUNT_DIR" apt-get clean
