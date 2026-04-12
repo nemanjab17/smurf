@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -16,12 +17,17 @@ import (
 
 func newConsoleCmd() *cobra.Command {
 	var user string
+	var command string
 
 	cmd := &cobra.Command{
-		Use:   "console <name>",
+		Use:   "console <name> [-- <command>]",
 		Short: "Open an SSH console to a smurf",
-		Long:  "Connects to a smurf via SSH. Automatically fetches keys and connects through the daemon's SSH proxy.",
-		Args:  cobra.ExactArgs(1),
+		Long: `Connects to a smurf via SSH. Automatically fetches keys and connects through the daemon's SSH proxy.
+
+Optionally pass a command to execute remotely instead of opening an interactive shell:
+  smurf console my-vm -c 'ls -la'
+  smurf console my-vm -- ls -la`,
+		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, conn, err := connect()
 			if err != nil {
@@ -103,6 +109,16 @@ func newConsoleCmd() *cobra.Command {
 				target,
 			}
 
+			// Determine the remote command to run: -c flag takes priority,
+			// otherwise use any trailing args after "-- ".
+			remoteCmd := command
+			if remoteCmd == "" && len(args) > 1 {
+				remoteCmd = strings.Join(args[1:], " ")
+			}
+			if remoteCmd != "" {
+				sshArgs = append(sshArgs, remoteCmd)
+			}
+
 			if client.TunnelMgr != nil {
 				sshCmd := exec.Command(sshBin, sshArgs[1:]...)
 				sshCmd.Stdin = os.Stdin
@@ -115,6 +131,7 @@ func newConsoleCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&user, "user", "u", "", "SSH user (default: smurf)")
+	cmd.Flags().StringVarP(&command, "command", "c", "", "Execute a command instead of opening an interactive shell")
 	return cmd
 }
 
