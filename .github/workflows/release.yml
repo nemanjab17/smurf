@@ -1,4 +1,4 @@
-name: Release CLI
+name: Release
 
 on:
   release:
@@ -26,18 +26,23 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Build smurf CLI
+      - name: Build binaries
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
-          bin="smurf-${{ matrix.goos }}-${{ matrix.goarch }}"
           version="${GITHUB_REF_NAME}"
-          go build -trimpath -ldflags "-s -w -X github.com/nemanjab17/smurf/internal/version.Version=${version}" -o "${bin}" ./cmd/smurf
+          ldflags="-s -w -X github.com/nemanjab17/smurf/internal/version.Version=${version}"
+          for cmd in smurf smurfd; do
+            bin="${cmd}-${{ matrix.goos }}-${{ matrix.goarch }}"
+            go build -trimpath -ldflags "${ldflags}" -o "${bin}" "./cmd/${cmd}"
+          done
 
-      - name: Upload release asset
+      - name: Upload release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          bin="smurf-${{ matrix.goos }}-${{ matrix.goarch }}"
-          gh release upload "${{ github.event.release.tag_name }}" "${bin}"
+          for cmd in smurf smurfd; do
+            bin="${cmd}-${{ matrix.goos }}-${{ matrix.goarch }}"
+            gh release upload "${{ github.event.release.tag_name }}" "${bin}"
+          done

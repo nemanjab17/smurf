@@ -18,7 +18,7 @@ set -euo pipefail
 
 FC_VERSION="1.11.0"
 RELEASE_REPO="nemanjab17/smurf"
-RELEASE_TAG="v0.6.0"
+RELEASE_TAG="v0.9.0"
 DATA_DIR="/var/lib/smurf"
 LISTEN_PORT="7070"
 
@@ -135,17 +135,17 @@ else
   trap "umount '$MOUNT_DIR' 2>/dev/null; rmdir '$MOUNT_DIR' 2>/dev/null" EXIT
 
   debootstrap --arch=$GO_ARCH \
-    --include=systemd,systemd-sysv,openssh-server,git,curl,wget,ca-certificates,sudo,iproute2,iputils-ping,net-tools,dbus,iptables,software-properties-common \
+    --include=systemd,systemd-sysv,openssh-server,git,curl,wget,ca-certificates,sudo,iproute2,iputils-ping,net-tools,dbus,iptables \
     jammy "$MOUNT_DIR" http://archive.ubuntu.com/ubuntu/ 2>&1 | tail -3
 
-  # Add universe for haveged
+  # Add universe and install packages that fail during debootstrap's limited configure phase
   cat > "$MOUNT_DIR/etc/apt/sources.list" <<'APT'
 deb http://archive.ubuntu.com/ubuntu jammy main universe
 deb http://archive.ubuntu.com/ubuntu jammy-updates main universe
 deb http://archive.ubuntu.com/ubuntu jammy-security main universe
 APT
   chroot "$MOUNT_DIR" apt-get update -qq 2>/dev/null
-  chroot "$MOUNT_DIR" apt-get install -y -qq haveged 2>/dev/null
+  chroot "$MOUNT_DIR" apt-get install -y -qq software-properties-common haveged 2>/dev/null
 
   # Configure
   echo "smurf" > "$MOUNT_DIR/etc/hostname"
