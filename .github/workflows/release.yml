@@ -33,7 +33,11 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME}"
           ldflags="-s -w -X github.com/nemanjab17/smurf/internal/version.Version=${version}"
-          for cmd in smurf smurfd; do
+          cmds="smurf"
+          if [ "${{ matrix.goos }}" = "linux" ]; then
+            cmds="smurf smurfd"
+          fi
+          for cmd in $cmds; do
             bin="${cmd}-${{ matrix.goos }}-${{ matrix.goarch }}"
             go build -trimpath -ldflags "${ldflags}" -o "${bin}" "./cmd/${cmd}"
           done
@@ -42,7 +46,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          for cmd in smurf smurfd; do
+          cmds="smurf"
+          if [ "${{ matrix.goos }}" = "linux" ]; then
+            cmds="smurf smurfd"
+          fi
+          for cmd in $cmds; do
             bin="${cmd}-${{ matrix.goos }}-${{ matrix.goarch }}"
             gh release upload "${{ github.event.release.tag_name }}" "${bin}"
           done
