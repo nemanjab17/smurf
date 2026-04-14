@@ -146,4 +146,5 @@ func (e *proxyEntry) forward(client net.Conn) {
 	go func() { io.Copy(target, client); done <- struct{}{} }()
 	go func() { io.Copy(client, target); done <- struct{}{} }()
 	<-done
+	<-done
 }
