@@ -159,10 +159,13 @@ func tapName(smurfID string) string {
 }
 
 func generateMAC(smurfID string) string {
-	// Deterministic MAC from smurf ID — locally administered, unicast
+	// Deterministic MAC from smurf ID — locally administered, unicast.
+	// Use the tail of the ID which contains the random component (ULID
+	// prefixes encode timestamps and collide for IDs created close together).
 	b := []byte(smurfID)
 	for len(b) < 4 {
 		b = append(b, 0)
 	}
-	return fmt.Sprintf("02:fc:%02x:%02x:%02x:%02x", b[0], b[1], b[2], b[3])
+	n := len(b)
+	return fmt.Sprintf("02:fc:%02x:%02x:%02x:%02x", b[n-4], b[n-3], b[n-2], b[n-1])
 }
