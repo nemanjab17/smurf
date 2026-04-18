@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -20,13 +19,18 @@ func newConsoleCmd() *cobra.Command {
 	var command string
 
 	cmd := &cobra.Command{
-		Use:   "console <name> [-- <command>]",
+		Use:   "console <name> [-- <ssh-args>...]",
 		Short: "Open an SSH console to a smurf",
 		Long: `Connects to a smurf via SSH. Automatically fetches keys and connects through the daemon's SSH proxy.
 
-Optionally pass a command to execute remotely instead of opening an interactive shell:
+Execute a command remotely:
   smurf console my-vm -c 'ls -la'
-  smurf console my-vm -- ls -la`,
+
+Any arguments after -- are passed directly to ssh, enabling all SSH features:
+  smurf console my-vm -- -L 8080:localhost:8080
+  smurf console my-vm -- -R 9090:localhost:9090
+  smurf console my-vm -- -D 1080
+  smurf console my-vm -- -N -L 3000:localhost:3000`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, conn, err := connect()
@@ -109,14 +113,14 @@ Optionally pass a command to execute remotely instead of opening an interactive 
 				target,
 			}
 
-			// Determine the remote command to run: -c flag takes priority,
-			// otherwise use any trailing args after "-- ".
-			remoteCmd := command
-			if remoteCmd == "" && len(args) > 1 {
-				remoteCmd = strings.Join(args[1:], " ")
+			// Args after -- are passed directly to ssh (port forwards, etc.).
+			if len(args) > 1 {
+				sshArgs = append(sshArgs, args[1:]...)
 			}
-			if remoteCmd != "" {
-				sshArgs = append(sshArgs, remoteCmd)
+
+			// -c flag appends a remote command.
+			if command != "" {
+				sshArgs = append(sshArgs, command)
 			}
 
 			if client.TunnelMgr != nil {
