@@ -71,6 +71,7 @@ func NewRootCmd() *cobra.Command {
 		newDeleteCmd(),
 		newConsoleCmd(),
 		newForwardCmd(),
+		newSCPCmd(),
 		newUpgradeCmd(),
 		papa.NewCmd(),
 	)
