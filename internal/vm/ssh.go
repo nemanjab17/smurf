@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -124,8 +125,12 @@ func PrepareRootfs(rootfsPath string, pubKey []byte, hostname, ip, gateway strin
 	return nil
 }
 
-// WaitForSSH polls the given IP on port 22 until a TCP connection succeeds
-// or the context expires.
+// WaitForSSH polls the given IP on port 22 until sshd is actually serving
+// (TCP accept + writes an "SSH-" version banner) or the context expires.
+// Reading the banner is stricter than a bare TCP connect: it proves sshd
+// finished init and is willing to start a handshake, not merely that the
+// port is bound — which is what callers (console, scp, etc.) need before
+// they hand off to the ssh client.
 func WaitForSSH(ctx context.Context, ip string, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -138,11 +143,25 @@ func WaitForSSH(ctx context.Context, ip string, timeout time.Duration) error {
 		default:
 		}
 
-		conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
-		if err == nil {
-			conn.Close()
+		if probeSSHBanner(addr) {
 			return nil
 		}
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 	}
+}
+
+// probeSSHBanner dials addr and returns true iff the peer writes the "SSH-"
+// version prefix within a short deadline.
+func probeSSHBanner(addr string) bool {
+	conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+	_ = conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+	buf := make([]byte, 4)
+	if _, err := io.ReadFull(conn, buf); err != nil {
+		return false
+	}
+	return string(buf) == "SSH-"
 }

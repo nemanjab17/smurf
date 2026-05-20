@@ -192,6 +192,12 @@ func (m *Manager) Create(ctx context.Context, opts CreateOpts) (*state.Smurf, er
 	m.running[id] = rvm
 	m.mu.Unlock()
 
+	if !m.skipSSHWait {
+		if err := WaitForSSH(ctx, netCfg.IP, 60*time.Second); err != nil {
+			return nil, fmt.Errorf("wait for ssh: %w", err)
+		}
+	}
+
 	return sm, nil
 }
 
@@ -327,6 +333,12 @@ func (m *Manager) fork(ctx context.Context, opts CreateOpts) (*state.Smurf, erro
 	m.running[id] = rvm
 	m.mu.Unlock()
 
+	if !m.skipSSHWait {
+		if err := WaitForSSH(ctx, netCfg.IP, 60*time.Second); err != nil {
+			return nil, fmt.Errorf("wait for ssh: %w", err)
+		}
+	}
+
 	return sm, nil
 }
 
@@ -388,6 +400,12 @@ func (m *Manager) Start(ctx context.Context, nameOrID string, sshPubKey string) 
 	m.mu.Lock()
 	m.running[sm.ID] = rvm
 	m.mu.Unlock()
+
+	if !m.skipSSHWait {
+		if err := WaitForSSH(ctx, netCfg.IP, 60*time.Second); err != nil {
+			return nil, fmt.Errorf("wait for ssh: %w", err)
+		}
+	}
 
 	return sm, nil
 }
